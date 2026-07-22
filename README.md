@@ -1,5 +1,7 @@
 # Hyro Music
 
+![Hyro Music Preview](resources/preview.png)
+
 Hyro Music is a premium, Spotify-inspired desktop music streaming application built with Electron, React, and Tailwind CSS v4. It fetches rich music metadata directly from YouTube Music and resolves streamable audio URLs on the fly using `yt-dlp`.
 
 ---
