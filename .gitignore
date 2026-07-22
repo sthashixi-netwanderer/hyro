@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+out/
+dist/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# TypeScript build info
+*.tsbuildinfo
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Temporary / cached files
+.creep/
+.zcode/
+1784345540545-player-script.js
+1784345540579-player-script.js
+electron.vite.config.*.mjs
+
+# Environment & secrets
+.env
+.env.*
+!.env.example

@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "exa": {
+      "baseUrl": "https://mcp.exa.ai/mcp"
+    },
+    "xiaohongshu": {
+      "baseUrl": "http://localhost:18060/mcp"
+    },
+    "linkedin": {
+      "baseUrl": "http://localhost:8001/mcp"
+    }
+  }
+}
