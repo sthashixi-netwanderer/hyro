@@ -64,7 +64,7 @@ jobs:
         run: npm run build
 
       - name: Package app
-        run: npm run ${{ matrix.build_cmd }}
+        run: npx electron-builder --${{ matrix.platform }} --publish never
 
       - name: Upload Linux artifacts
         if: matrix.platform == 'linux'
