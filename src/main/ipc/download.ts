@@ -1,5 +1,4 @@
 import { logger } from '../logger'
-import { logger } from '../logger'
 import { ipcMain, BrowserWindow, app } from 'electron'
 import { execFile, type ChildProcess } from 'child_process'
 import { join, relative, dirname } from 'path'
@@ -417,6 +416,17 @@ export function registerDownloadIPC(mainWindow: BrowserWindow | null): void {
           album.name || null,
           track.duration || null
         )
+
+        // Mark this individual track as done
+        event.sender.send('download:progress', {
+          id: trackDownloadId,
+          type: 'album',
+          trackName: track.name,
+          progress: 100,
+          status: 'done',
+          trackIndex: i,
+          totalTracks: tracks.length
+        })
       } catch (err: any) {
         if (err.message === 'Cancelled') {
           deletePartialFiles(dir, `${trackNum}. ${trackName}`)
@@ -458,6 +468,7 @@ export function registerDownloadIPC(mainWindow: BrowserWindow | null): void {
     event.sender.send('download:progress', {
       id: albumDownloadId,
       type: 'album',
+      trackName: album.name,
       progress: 100,
       status: 'done'
     })
@@ -509,6 +520,17 @@ export function registerDownloadIPC(mainWindow: BrowserWindow | null): void {
           track.album?.name || null,
           track.duration || null
         )
+
+        // Mark this individual track as done
+        event.sender.send('download:progress', {
+          id: trackDownloadId,
+          type: 'playlist',
+          trackName: track.name,
+          progress: 100,
+          status: 'done',
+          trackIndex: i,
+          totalTracks: tracks.length
+        })
       } catch (err: any) {
         if (err.message === 'Cancelled') {
           deletePartialFiles(dir, `${trackNum}. ${trackName}`)
@@ -550,6 +572,7 @@ export function registerDownloadIPC(mainWindow: BrowserWindow | null): void {
     event.sender.send('download:progress', {
       id: playlistDownloadId,
       type: 'playlist',
+      trackName: playlist.name,
       progress: 100,
       status: 'done'
     })
