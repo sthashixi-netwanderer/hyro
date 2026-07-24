@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger'
 import React, { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react'
 import type { FavoriteItem } from '../../../shared/types'
 
@@ -31,7 +32,7 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
       const items = await window.api.getFavorites()
       setFavorites(items)
     } catch (err) {
-      console.error('Failed to load favorites:', err)
+      logger.error('Failed to load favorites:', err)
     } finally {
       setLoading(false)
     }
@@ -52,7 +53,7 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
         setFavorites(items)
       }
     } catch (err) {
-      console.error('Failed to toggle favorite:', err)
+      logger.error('Failed to toggle favorite:', err)
     }
   }, [favorites])
 
@@ -64,7 +65,7 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
         setFavorites(items)
       }
     } catch (err) {
-      console.error('Failed to update favorite data:', err)
+      logger.error('Failed to update favorite data:', err)
     }
   }, [favorites])
 

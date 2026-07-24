@@ -4,6 +4,10 @@ node_modules/
 # Build outputs
 out/
 dist/
+release/
+
+# Bundled binaries (downloaded by postinstall)
+resources/bin/
 
 # Logs
 *.log

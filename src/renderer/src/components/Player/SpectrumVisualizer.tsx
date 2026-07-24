@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger'
 import { useRef, useEffect, useCallback } from 'react'
 
 interface SpectrumVisualizerProps {
@@ -60,10 +61,10 @@ export function initSpectrumAnalyser(audio: HTMLAudioElement): AnalyserNode | nu
     // but resume() is safe to call regardless.
     ctx.resume()
 
-    console.log('[SpectrumVisualizer] Analyser connected via captureStream, state:', ctx.state)
+    logger.log('[SpectrumVisualizer] Analyser connected via captureStream, state:', ctx.state)
     return analyser
   } catch (err) {
-    console.warn('[SpectrumVisualizer] Failed to create analyser:', err)
+    logger.warn('[SpectrumVisualizer] Failed to create analyser:', err)
     return null
   }
 }

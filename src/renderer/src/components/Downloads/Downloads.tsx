@@ -4,13 +4,13 @@ import { Download, CheckCircle2, XCircle, X, RotateCw, Trash2, Loader2, AlertCir
 import { cn } from '@/lib/utils'
 
 export default function Downloads() {
-  const { 
-    downloads, 
-    activeCount, 
-    cancelDownload, 
-    retryDownload, 
-    dismissCompleted, 
-    dismissDownload 
+  const {
+    downloads,
+    activeCount,
+    cancelDownload,
+    retryDownload,
+    dismissCompleted,
+    dismissDownload
   } = useDownload()
 
   const hasCompletedOrCancelled = downloads.some(
@@ -52,56 +52,62 @@ export default function Downloads() {
   }
 
   return (
-    <div className="p-8 max-w-[1000px] mx-auto">
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-white mb-2">Downloads</h1>
-          <p className="text-sm text-white/50">
-            {activeCount > 0 
-              ? `Currently downloading ${activeCount} track${activeCount > 1 ? 's' : ''}`
-              : 'Manage and monitor your offline tracks download queue'
-            }
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {hasCompletedOrCancelled && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={dismissCompleted}
-              className="text-xs h-9 border-white/10 hover:bg-white/5"
-            >
-              <Trash2 className="size-4 mr-2" />
-              Clear Completed
-            </Button>
-          )}
-          {activeCount > 0 && (
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={() => {
-                downloads.forEach(d => {
-                  if (d.status === 'downloading') {
-                    cancelDownload(d.id)
-                  }
-                })
-              }}
-              className="text-xs h-9"
-            >
-              <X className="size-4 mr-2" />
-              Cancel All
-            </Button>
-          )}
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* Fixed Header */}
+      <div className="shrink-0 px-8 pt-8 pb-4 bg-background/95 backdrop-blur-md z-20 border-b border-border/10">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-foreground mb-1">Downloads</h1>
+            <p className="text-xs text-muted-foreground">
+              {activeCount > 0
+                ? `Currently downloading ${activeCount} track${activeCount > 1 ? 's' : ''}`
+                : 'Manage and monitor your offline tracks download queue'
+              }
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {hasCompletedOrCancelled && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={dismissCompleted}
+                className="text-xs h-9"
+              >
+                <Trash2 className="size-4 mr-2" />
+                Clear Completed
+              </Button>
+            )}
+            {activeCount > 0 && (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => {
+                  downloads.forEach(d => {
+                    if (d.status === 'downloading') {
+                      cancelDownload(d.id)
+                    }
+                  })
+                }}
+                className="text-xs h-9"
+              >
+                <X className="size-4 mr-2" />
+                Cancel All
+              </Button>
+            )}
+          </div>
         </div>
       </div>
 
+      {/* Scrollable Content */}
+      <div className="flex-1 overflow-y-auto px-8 py-6">
+
       {downloads.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-24 text-center bg-secondary/10 border border-dashed border-white/10 rounded-xl">
+        <div className="flex flex-col items-center justify-center py-24 text-center bg-secondary/10 border border-dashed border-border rounded-xl">
           <div className="p-4 rounded-full bg-secondary/40 text-muted-foreground mb-4">
-            <Download className="size-10 text-white/30" />
+            <Download className="size-10 opacity-30" />
           </div>
-          <h3 className="text-lg font-semibold text-white/80 mb-1">Your download queue is empty</h3>
-          <p className="text-sm text-white/40 max-w-[320px]">
+          <h3 className="text-lg font-semibold text-foreground mb-1">Your download queue is empty</h3>
+          <p className="text-sm text-muted-foreground max-w-[320px]">
             Go search or browse tracks and click the download option to listen to them offline.
           </p>
         </div>
@@ -111,7 +117,7 @@ export default function Downloads() {
             <div
               key={item.id}
               className={cn(
-                "flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 bg-accent/25 border border-white/5 rounded-xl hover:bg-accent/40 transition-colors",
+                "flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 bg-accent/25 border border-border rounded-xl hover:bg-accent/40 transition-colors",
                 item.status === 'downloading' && "border-primary/20 bg-primary/[0.02]"
               )}
             >
@@ -128,29 +134,29 @@ export default function Downloads() {
                     <XCircle className="size-4 text-red-500 shrink-0" />
                   )}
                   {item.status === 'cancelled' && (
-                    <XCircle className="size-4 text-white/30 shrink-0" />
+                    <XCircle className="size-4 text-muted-foreground shrink-0" />
                   )}
                   {item.status === 'interrupted' && (
                     <AlertCircle className="size-4 text-yellow-500 shrink-0" />
                   )}
-                  <span className="text-xs font-semibold uppercase tracking-wider text-white/30 shrink-0">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground shrink-0">
                     {item.type}
                   </span>
                   {item.totalTracks && item.totalTracks > 1 && (
-                    <span className="text-xs text-white/40 shrink-0">
+                    <span className="text-xs text-muted-foreground shrink-0">
                       (Track {(item.trackIndex ?? 0) + 1} of {item.totalTracks})
                     </span>
                   )}
                 </div>
-                <h3 className="text-sm font-semibold text-white truncate" title={item.trackName}>
+                <h3 className="text-sm font-semibold text-foreground truncate" title={item.trackName}>
                   {item.trackName}
                 </h3>
                 {item.status === 'error' && item.error && (
-                  <p className="text-xs text-red-400/80 mt-1 line-clamp-1">{item.error}</p>
+                  <p className="text-xs text-red-500 mt-1 line-clamp-1">{item.error}</p>
                 )}
                 {item.status === 'downloading' && (
                   <div className="w-full max-w-md mt-2">
-                    <div className="w-full bg-white/10 h-1.5 rounded-full overflow-hidden">
+                    <div className="w-full bg-muted h-1.5 rounded-full overflow-hidden">
                       <div
                         className="h-full bg-primary rounded-full transition-all duration-300"
                         style={{ width: `${item.progress}%` }}
@@ -161,13 +167,13 @@ export default function Downloads() {
               </div>
 
               {/* Right: Actions and Status */}
-              <div className="flex items-center justify-between md:justify-end gap-6 shrink-0 border-t md:border-t-0 border-white/5 pt-2.5 md:pt-0">
+              <div className="flex items-center justify-between md:justify-end gap-6 shrink-0 border-t md:border-t-0 border-border pt-2.5 md:pt-0">
                 <div className="flex flex-col md:items-end">
                   <span className={cn("text-sm font-medium", getStatusColor(item.status))}>
                     {getStatusText(item)}
                   </span>
                   {item.status === 'downloading' && (
-                    <span className="text-[10px] text-white/40 mt-0.5">
+                    <span className="text-[10px] text-muted-foreground mt-0.5">
                       Progress: {Math.round(item.progress)}%
                     </span>
                   )}
@@ -178,7 +184,7 @@ export default function Downloads() {
                       variant="ghost"
                       size="icon-sm"
                       onClick={() => cancelDownload(item.id)}
-                      className="text-white/40 hover:text-red-400 hover:bg-red-500/10 size-8"
+                      className="text-muted-foreground hover:text-red-400 hover:bg-red-500/10 size-8"
                       title="Cancel"
                     >
                       <X className="size-4" />
@@ -189,7 +195,7 @@ export default function Downloads() {
                       variant="ghost"
                       size="icon-sm"
                       onClick={() => retryDownload(item)}
-                      className="text-white/40 hover:text-yellow-400 hover:bg-yellow-500/10 size-8"
+                      className="text-muted-foreground hover:text-yellow-400 hover:bg-yellow-500/10 size-8"
                       title="Retry"
                     >
                       <RotateCw className="size-4" />
@@ -200,7 +206,7 @@ export default function Downloads() {
                       variant="ghost"
                       size="icon-sm"
                       onClick={() => dismissDownload(item.id)}
-                      className="text-white/40 hover:text-white hover:bg-white/5 size-8"
+                      className="text-muted-foreground hover:text-foreground hover:bg-accent size-8"
                       title="Clear from list"
                     >
                       <X className="size-4" />
@@ -212,6 +218,7 @@ export default function Downloads() {
           ))}
         </div>
       )}
+      </div>
     </div>
   )
 }

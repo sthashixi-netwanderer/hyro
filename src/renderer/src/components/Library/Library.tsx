@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger'
 import { useState, useEffect } from 'react'
 import { usePlayer } from '../../context/PlayerContext'
 import type { LibraryContainer } from '../../../../shared/types'
@@ -31,7 +32,7 @@ export default function Library({ onNavigate }: LibraryProps) {
       const data = await window.api.getLibraryContainers()
       setContainers(data)
     } catch (err) {
-      console.error('Failed to load library:', err)
+      logger.error('Failed to load library:', err)
     } finally {
       setLoading(false)
     }
@@ -90,56 +91,63 @@ export default function Library({ onNavigate }: LibraryProps) {
   }
 
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold mb-6">Library</h1>
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-        {containers.map((container) => (
-          <Card
-            key={container.name}
-            className="group aspect-square bg-card hover:bg-accent cursor-pointer overflow-hidden relative"
-            onClick={() => onNavigate('libraryContainer', container.name)}
-          >
-            {/* Cover Art */}
-            <div className="w-full h-full flex items-center justify-center">
-              {getContainerThumbnail(container) ? (
-                <img
-                  src={getContainerThumbnail(container)!}
-                  alt={container.name}
-                  className="w-full h-full object-cover"
-                  onError={(e) => {
-                    const target = e.target as HTMLImageElement
-                    target.style.display = 'none'
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* Fixed Header */}
+      <div className="shrink-0 px-8 pt-8 pb-4 bg-background/95 backdrop-blur-md z-20 border-b border-border/10">
+        <h1 className="text-2xl font-bold">Library</h1>
+      </div>
+
+      {/* Scrollable Content */}
+      <div className="flex-1 overflow-y-auto px-8 py-6">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+          {containers.map((container) => (
+            <Card
+              key={container.name}
+              className="group aspect-square bg-card hover:bg-accent cursor-pointer overflow-hidden relative"
+              onClick={() => onNavigate('libraryContainer', container.name)}
+            >
+              {/* Cover Art */}
+              <div className="w-full h-full flex items-center justify-center">
+                {getContainerThumbnail(container) ? (
+                  <img
+                    src={getContainerThumbnail(container)!}
+                    alt={container.name}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement
+                      target.style.display = 'none'
+                    }}
+                  />
+                ) : (
+                  <div className="text-muted-foreground">
+                    {getContainerIcon(container.type)}
+                  </div>
+                )}
+              </div>
+
+              {/* Overlay on hover */}
+              <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                <button
+                  className="size-12 rounded-full bg-primary flex items-center justify-center hover:scale-105 transition-transform"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handlePlayContainer(container)
                   }}
-                />
-              ) : (
-                <div className="text-muted-foreground">
-                  {getContainerIcon(container.type)}
-                </div>
-              )}
-            </div>
+                >
+                  <Music className="size-5 text-primary-foreground" />
+                </button>
+              </div>
 
-            {/* Overlay on hover */}
-            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-              <button
-                className="size-12 rounded-full bg-primary flex items-center justify-center hover:scale-105 transition-transform"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handlePlayContainer(container)
-                }}
-              >
-                <Music className="size-5 text-primary-foreground" />
-              </button>
-            </div>
-
-            {/* Info */}
-            <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80 to-transparent">
-              <p className="text-sm font-medium truncate text-white">{container.name}</p>
-              <p className="text-xs text-white/70 capitalize">
-                {container.type} • {container.trackCount} track{container.trackCount !== 1 ? 's' : ''}
-              </p>
-            </div>
-          </Card>
-        ))}
+              {/* Info */}
+              <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80 to-transparent">
+                <p className="text-sm font-medium truncate text-white">{container.name}</p>
+                <p className="text-xs text-white/70 capitalize">
+                  {container.type} • {container.trackCount} track{container.trackCount !== 1 ? 's' : ''}
+                </p>
+              </div>
+            </Card>
+          ))}
+        </div>
       </div>
     </div>
   )

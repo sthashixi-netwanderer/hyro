@@ -1,8 +1,12 @@
+import { logger } from '../logger'
+import { logger } from '../logger'
 import { ipcMain, app } from 'electron'
 import { execFile, type ChildProcess } from 'child_process'
 import { join } from 'path'
-import { existsSync, mkdirSync, rmSync, readdirSync } from 'fs'
+import { existsSync, mkdirSync, rmSync, readdirSync, statSync } from 'fs'
 import { getCookieBrowser } from './settings'
+import { recordDataUsage } from './data-usage'
+import { getYtDlpBinaryPath } from './ytdlp-path'
 
 const CACHE_DIR = join(app.getPath('userData'), 'stream-cache')
 
@@ -59,7 +63,7 @@ function cleanupStaleFiles(): void {
       }
     }
   } catch (err) {
-    console.error('Failed to clean up stale cache files:', err)
+    logger.error('Failed to clean up stale cache files:', err)
   }
 }
 
@@ -70,13 +74,13 @@ function cleanupStaleFiles(): void {
 function preCacheTrack(videoId: string): Promise<void> {
   // Skip if already cached
   if (getCachedPath(videoId)) {
-    console.log(`[stream-cache] ${videoId} already cached, skipping`)
+    logger.log(`[stream-cache] ${videoId} already cached, skipping`)
     return Promise.resolve()
   }
 
   // Skip if already being downloaded
   if (activeProcesses.has(videoId)) {
-    console.log(`[stream-cache] ${videoId} already being downloaded, skipping`)
+    logger.log(`[stream-cache] ${videoId} already being downloaded, skipping`)
     return Promise.resolve()
   }
 
@@ -103,24 +107,33 @@ function preCacheTrack(videoId: string): Promise<void> {
     args.push('--cookies-from-browser', cookieBrowser)
   }
 
-  const cmdStr = `yt-dlp ${args.map(a => `"${a}"`).join(' ')}`
-  console.log(`[stream-cache] Pre-caching ${videoId}...`)
-  console.log(`[stream-cache] Command: ${cmdStr}`)
+  const cmdStr = `${getYtDlpBinaryPath()} ${args.map(a => `"${a}"`).join(' ')}`
+  logger.log(`[stream-cache] Pre-caching ${videoId}...`)
+  logger.log(`[stream-cache] Command: ${cmdStr}`)
 
   return new Promise((resolve, reject) => {
-    const proc = execFile('yt-dlp', args, { timeout: 120000 }, (err) => {
+    const proc = execFile(getYtDlpBinaryPath(), args, { timeout: 120000 }, (err) => {
       activeProcesses.delete(videoId)
       if (err) {
         if ((err as any).killed || err.message.includes('killed')) {
           // Killed = cancelled, not an error
-          console.log(`[stream-cache] ${videoId} pre-cache cancelled (superseded)`)
+          logger.log(`[stream-cache] ${videoId} pre-cache cancelled (superseded)`)
           resolve()
         } else {
-          console.error(`[stream-cache] Pre-cache FAILED for ${videoId}: ${err.message}`)
+          logger.error(`[stream-cache] Pre-cache FAILED for ${videoId}: ${err.message}`)
           resolve() // Don't reject - pre-cache failure is non-fatal
         }
       } else {
-        console.log(`[stream-cache] Pre-cached ${videoId} ✓`)
+        logger.log(`[stream-cache] Pre-cached ${videoId}`)
+        try {
+          const cachedFile = getCachedPath(videoId)
+          if (cachedFile && existsSync(cachedFile)) {
+            const stat = statSync(cachedFile)
+            recordDataUsage(stat.size, 'cache')
+          }
+        } catch {
+          // Ignore stat failure
+        }
         resolve()
       }
     })
@@ -146,25 +159,25 @@ async function preCacheTracks(videoIds: string[]): Promise<void> {
   const toCache = videoIds.filter(id => !getCachedPath(id))
 
   if (toCache.length === 0) {
-    console.log(`[stream-cache] All ${videoIds.length} track(s) already cached`)
+    logger.log(`[stream-cache] All ${videoIds.length} track(s) already cached`)
     return
   }
 
-  console.log(`[stream-cache] Pre-cache batch: ${toCache.length} track(s) [${toCache.join(', ')}]`)
+  logger.log(`[stream-cache] Pre-cache batch: ${toCache.length} track(s) [${toCache.join(', ')}]`)
 
   // Pre-cache sequentially to avoid overwhelming the network.
   // The request version lets a newer queue window stop this stale worker
   // without mistaking a normally completed download for a cancellation.
   for (let i = 0; i < toCache.length; i++) {
     if (requestVersion !== preCacheRequestVersion) {
-      console.log(`[stream-cache] Pre-cache batch superseded at track ${i + 1}/${toCache.length}, stopping`)
+      logger.log(`[stream-cache] Pre-cache batch superseded at track ${i + 1}/${toCache.length}, stopping`)
       return
     }
-    console.log(`[stream-cache] Track ${i + 1}/${toCache.length}`)
+    logger.log(`[stream-cache] Track ${i + 1}/${toCache.length}`)
     await preCacheTrack(toCache[i])
   }
 
-  console.log(`[stream-cache] Pre-cache batch complete`)
+  logger.log(`[stream-cache] Pre-cache batch complete`)
 }
 
 /**
@@ -195,7 +208,7 @@ function clearCache(): void {
       rmSync(CACHE_DIR, { recursive: true, force: true })
     }
   } catch (err) {
-    console.error('Failed to clear stream cache:', err)
+    logger.error('Failed to clear stream cache:', err)
   }
 }
 
@@ -215,7 +228,7 @@ export function registerStreamCacheIPC(): void {
 
   ipcMain.handle('stream-cache:preCache', async (_event, videoIds: string[]) => {
     // Fire and forget - don't await in the IPC handler
-    preCacheTracks(videoIds).catch(console.error)
+    preCacheTracks(videoIds).catch(logger.error)
     return { success: true }
   })
 

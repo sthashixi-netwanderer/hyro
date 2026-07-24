@@ -38,6 +38,9 @@ export default defineConfig({
       alias: {
         '@': resolve(__dirname, 'src/renderer/src')
       }
+    },
+    server: {
+      port: 4209
     }
   }
 })

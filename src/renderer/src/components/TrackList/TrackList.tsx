@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import type { Track } from '../../../../shared/types'
 import { getTrackThumbnailUrl } from '../../../../shared/utils'
 import { usePlayer } from '../../context/PlayerContext'
@@ -5,6 +6,7 @@ import { useDownload } from '../../context/DownloadContext'
 import { useNavigation } from '../../context/NavigationContext'
 import { Button } from '@/components/ui/button'
 import FavoriteButton from '@/components/ui/FavoriteButton'
+import CachedImage from '@/components/ui/CachedImage'
 import { Music, Download, Check, ListPlus } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -19,6 +21,17 @@ export default function TrackList({ tracks, showIndex = true, showDownload = tru
   const { playTrack, currentTrack, isPlaying, addToQueue } = usePlayer()
   const { downloadTrack, isDownloading, getProgress, isDownloaded } = useDownload()
   const { navigateTo } = useNavigation()
+
+  useEffect(() => {
+    if (tracks && tracks.length > 0) {
+      const urls = tracks
+        .map((t) => getTrackThumbnailUrl(t))
+        .filter((u): u is string => typeof u === 'string' && u.startsWith('http'))
+      if (urls.length > 0) {
+        window.api.preCacheImages(urls).catch(() => {})
+      }
+    }
+  }, [tracks])
 
   function handlePlay(track: Track) {
     if (onPlay) {
@@ -71,11 +84,12 @@ export default function TrackList({ tracks, showIndex = true, showDownload = tru
               ) : null}
             </div>
             <div className="w-10 h-10 rounded overflow-hidden bg-muted shrink-0 flex items-center justify-center">
-              {getTrackThumbnailUrl(track) ? (
-                <img src={getTrackThumbnailUrl(track)} alt={track.name} className="w-full h-full object-cover" />
-              ) : (
-                <Music className="size-3 text-muted-foreground" />
-              )}
+              <CachedImage
+                src={getTrackThumbnailUrl(track)}
+                alt={track.name}
+                className="w-full h-full object-cover"
+                fallbackIcon={<Music className="size-3 text-muted-foreground" />}
+              />
             </div>
             <div className="flex-1 min-w-0">
               <p className={cn('text-sm font-medium truncate', isCurrentTrack && 'text-primary')}>
@@ -136,7 +150,7 @@ export default function TrackList({ tracks, showIndex = true, showDownload = tru
               downloading ? (
                 <div className="shrink-0 relative" title={`Downloading ${Math.round(progress?.progress || 0)}%`}>
                   <svg className="size-7 -rotate-90" viewBox="0 0 32 32">
-                    <circle cx="16" cy="16" r="14" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-white/10" />
+                    <circle cx="16" cy="16" r="14" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-muted/40" />
                     <circle
                       cx="16" cy="16" r="14" fill="none" stroke="currentColor" strokeWidth="2.5"
                       className="text-primary transition-all duration-300"

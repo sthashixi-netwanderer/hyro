@@ -1,3 +1,5 @@
+import { logger } from '../logger'
+import { logger } from '../logger'
 import { ipcMain, BrowserWindow, app } from 'electron'
 import { execFile, type ChildProcess } from 'child_process'
 import { join, relative, dirname } from 'path'
@@ -5,6 +7,7 @@ import { homedir } from 'os'
 import { existsSync, mkdirSync, writeFileSync, readdirSync, unlinkSync, readFileSync } from 'fs'
 import { addToRegistry } from './library'
 import { getCookieBrowser } from './settings'
+import { getYtDlpBinaryPath } from './ytdlp-path'
 
 const BASE_DIR = join(homedir(), 'Downloads', 'Hyro')
 const CONFIG_DIR = app.getPath('userData')
@@ -195,14 +198,14 @@ function downloadTrackAudio(
   }
 
   return new Promise((resolve, reject) => {
-    const proc = execFile('yt-dlp', args, { timeout: 300000 }, (err) => {
+    const proc = execFile(getYtDlpBinaryPath(), args, { timeout: 300000 }, (err) => {
       activeProcesses.delete(downloadId)
       if (err) {
         // Check if it was killed (cancelled)
         if ((err as any).killed || err.message.includes('killed')) {
           reject(new Error('Cancelled'))
         } else {
-          console.error('yt-dlp download error:', err.message)
+          logger.error('yt-dlp download error:', err.message)
           reject(new Error(`Download failed: ${err.message}`))
         }
       } else {

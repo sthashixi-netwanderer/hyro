@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger'
 import { useState, useEffect, useRef } from 'react'
 import type { Track, Artist, Album, Playlist, SearchResults, ViewType, HomeSection } from '../../../../shared/types'
 import { bestThumbnailUrl } from '../../../../shared/utils'
@@ -9,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import FavoriteButton from '@/components/ui/FavoriteButton'
+import CachedImage from '@/components/ui/CachedImage'
 import {
   Search as SearchIcon,
   X,
@@ -141,8 +143,34 @@ export default function Search({ initialQuery = '', onNavigate }: SearchProps) {
     try {
       const data = await window.api.search(trimmed)
       setResults(data)
+
+      if (data) {
+        const urls: string[] = []
+        const searchData = data as any
+        if (searchData.topResult?.thumbnails) {
+          const url = bestThumbnailUrl(searchData.topResult.thumbnails)
+          if (url) urls.push(url)
+        }
+        for (const song of data.songs) {
+          const url = bestThumbnailUrl(song.thumbnails)
+          if (url) urls.push(url)
+        }
+        for (const artist of data.artists) {
+          const url = bestThumbnailUrl(artist.thumbnails)
+          if (url) urls.push(url)
+        }
+        for (const album of data.albums) {
+          const url = bestThumbnailUrl(album.thumbnails)
+          if (url) urls.push(url)
+        }
+        for (const playlist of data.playlists) {
+          const url = bestThumbnailUrl(playlist.thumbnails)
+          if (url) urls.push(url)
+        }
+        if (urls.length > 0) window.api.preCacheImages(urls).catch(() => {})
+      }
     } catch (err) {
-      console.error('Search failed:', err)
+      logger.error('Search failed:', err)
     } finally {
       setLoading(false)
     }
@@ -189,7 +217,7 @@ export default function Search({ initialQuery = '', onNavigate }: SearchProps) {
         downloadAlbum(album, albumData.songs)
       }
     } catch (err) {
-      console.error('Failed to download album:', err)
+      logger.error('Failed to download album:', err)
     }
   }
 
@@ -200,7 +228,7 @@ export default function Search({ initialQuery = '', onNavigate }: SearchProps) {
         downloadPlaylist(pl, plData.videos)
       }
     } catch (err) {
-      console.error('Failed to download playlist:', err)
+      logger.error('Failed to download playlist:', err)
     }
   }
 
@@ -208,125 +236,130 @@ export default function Search({ initialQuery = '', onNavigate }: SearchProps) {
   const menuY = contextMenu ? Math.min(contextMenu.y, window.innerHeight - 300) : 0
 
   return (
-    <div className="p-8">
-      <div className="flex gap-2 max-w-xl mb-8 relative">
-        <div className="relative flex-1">
-          <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-          <Input
-            ref={inputRef}
-            type="text"
-            className="pl-10 pr-10 h-11 bg-muted border-0 text-base placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring w-full"
-            placeholder="Search for songs, artists, albums..."
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={handleKeyDownInput}
-            onFocus={() => {
-              setShowSuggestions(true)
-              setShowRecent(true)
-            }}
-            onBlur={() => {
-              setTimeout(() => {
-                setShowSuggestions(false)
-                setShowRecent(false)
-              }, 200)
-            }}
-          />
-          {query && (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              onClick={() => {
-                setQuery('')
-                setResults(null)
-                setSuggestions([])
-                inputRef.current?.focus()
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* Fixed Header */}
+      <div className="shrink-0 px-8 pt-8 pb-4 bg-background/95 backdrop-blur-md z-20 border-b border-border/10">
+        <div className="flex gap-2 max-w-xl relative">
+          <div className="relative flex-1">
+            <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+            <Input
+              ref={inputRef}
+              type="text"
+              className="pl-10 pr-10 h-11 bg-muted border-0 text-base placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring w-full"
+              placeholder="Search for songs, artists, albums..."
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={handleKeyDownInput}
+              onFocus={() => {
+                setShowSuggestions(true)
+                setShowRecent(true)
               }}
-            >
-              <X className="size-4" />
-            </Button>
-          )}
+              onBlur={() => {
+                setTimeout(() => {
+                  setShowSuggestions(false)
+                  setShowRecent(false)
+                }, 200)
+              }}
+            />
+            {query && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                onClick={() => {
+                  setQuery('')
+                  setResults(null)
+                  setSuggestions([])
+                  inputRef.current?.focus()
+                }}
+              >
+                <X className="size-4" />
+              </Button>
+            )}
 
-          {/* Suggestions Dropdown */}
-          {showSuggestions && suggestions.length > 0 && (
-            <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-lg shadow-lg z-50 overflow-hidden">
-              {suggestions.map((suggestion, index) => (
-                <button
-                  key={index}
-                  className="w-full text-left px-4 py-2 text-sm text-popover-foreground hover:bg-accent transition-colors flex items-center gap-2"
-                  onMouseDown={() => {
-                    setQuery(suggestion)
-                    handleSearch(suggestion)
-                  }}
-                >
-                  <SearchIcon className="size-3.5 text-muted-foreground" />
-                  {suggestion}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* Recent Searches */}
-          {showRecent && !query && recentSearches.length > 0 && (
-            <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-lg shadow-xl z-50 overflow-hidden">
-              <div className="px-3 py-2.5 text-xs font-semibold text-muted-foreground border-b border-border flex justify-between items-center bg-accent/20 select-none">
-                <span>Recent Searches</span>
-                <button
-                  className="text-primary hover:underline text-[10px]"
-                  onMouseDown={(e) => {
-                    e.preventDefault()
-                    setRecentSearches([])
-                    localStorage.removeItem('recentSearches')
-                  }}
-                >
-                  Clear all
-                </button>
-              </div>
-              <div className="max-h-[200px] overflow-y-auto divide-y divide-border/40">
-                {recentSearches.map((s, i) => (
-                  <div
-                    key={i}
-                    className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-accent cursor-pointer group transition-colors"
+            {/* Suggestions Dropdown */}
+            {showSuggestions && suggestions.length > 0 && (
+              <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-lg shadow-lg z-50 overflow-hidden">
+                {suggestions.map((suggestion, index) => (
+                  <button
+                    key={index}
+                    className="w-full text-left px-4 py-2 text-sm text-popover-foreground hover:bg-accent transition-colors flex items-center gap-2"
                     onMouseDown={() => {
-                      setQuery(s)
-                      handleSearch(s)
+                      setQuery(suggestion)
+                      handleSearch(suggestion)
                     }}
                   >
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <Clock className="size-3.5 text-muted-foreground shrink-0" />
-                      <span className="text-sm text-white/95 truncate select-none">{s}</span>
-                    </div>
-                    <button
-                      className="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-white rounded-full hover:bg-white/10 transition-all"
-                      onMouseDown={(e) => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        handleRemoveRecent(s)
-                      }}
-                      title="Remove"
-                    >
-                      <X className="size-3.5" />
-                    </button>
-                  </div>
+                    <SearchIcon className="size-3.5 text-muted-foreground" />
+                    {suggestion}
+                  </button>
                 ))}
               </div>
-            </div>
-          )}
+            )}
+
+            {/* Recent Searches */}
+            {showRecent && !query && recentSearches.length > 0 && (
+              <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-lg shadow-xl z-50 overflow-hidden">
+                <div className="px-3 py-2.5 text-xs font-semibold text-muted-foreground border-b border-border flex justify-between items-center bg-accent/20 select-none">
+                  <span>Recent Searches</span>
+                  <button
+                    className="text-primary hover:underline text-[10px]"
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      setRecentSearches([])
+                      localStorage.removeItem('recentSearches')
+                    }}
+                  >
+                    Clear all
+                  </button>
+                </div>
+                <div className="max-h-[200px] overflow-y-auto divide-y divide-border/40">
+                  {recentSearches.map((s, i) => (
+                    <div
+                      key={i}
+                      className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-accent cursor-pointer group transition-colors"
+                      onMouseDown={() => {
+                        setQuery(s)
+                        handleSearch(s)
+                      }}
+                    >
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <Clock className="size-3.5 text-muted-foreground shrink-0" />
+                        <span className="text-sm text-white/95 truncate select-none">{s}</span>
+                      </div>
+                      <button
+                        className="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-white rounded-full hover:bg-white/10 transition-all"
+                        onMouseDown={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          handleRemoveRecent(s)
+                        }}
+                        title="Remove"
+                      >
+                        <X className="size-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          <Button
+            onClick={() => handleSearch(query)}
+            className="h-11 px-5 bg-primary hover:bg-primary/95 text-white font-medium rounded-lg shrink-0"
+          >
+            Search
+          </Button>
         </div>
-        <Button
-          onClick={() => handleSearch(query)}
-          className="h-11 px-5 bg-primary hover:bg-primary/95 text-white font-medium rounded-lg shrink-0"
-        >
-          Search
-        </Button>
       </div>
 
-      {loading && (
-        <div className="flex flex-col items-center justify-center py-20 gap-3">
-          <Skeleton className="h-8 w-8 rounded-full" />
-          <p className="text-muted-foreground text-sm">Searching...</p>
-        </div>
-      )}
+      {/* Scrollable Content */}
+      <div className="flex-1 overflow-y-auto px-8 py-6">
+        {loading && (
+          <div className="flex flex-col items-center justify-center py-20 gap-3">
+            <Skeleton className="h-8 w-8 rounded-full" />
+            <p className="text-muted-foreground text-sm">Searching...</p>
+          </div>
+        )}
 
       {results && !loading && (
         <div className="space-y-8">
@@ -359,7 +392,7 @@ export default function Search({ initialQuery = '', onNavigate }: SearchProps) {
                                 className={cn(
                                   art.artistId && 'hover:underline cursor-pointer hover:text-foreground transition-colors'
                                 )}
-                                onDoubleClick={(e) => {
+                                onClick={(e) => {
                                   e.stopPropagation()
                                   if (art.artistId) onNavigate('artist', art.artistId)
                                 }}
@@ -373,7 +406,7 @@ export default function Search({ initialQuery = '', onNavigate }: SearchProps) {
                             className={cn(
                               track.artist?.artistId && 'hover:underline cursor-pointer hover:text-foreground transition-colors'
                             )}
-                            onDoubleClick={(e) => {
+                            onClick={(e) => {
                               e.stopPropagation()
                               if (track.artist?.artistId) onNavigate('artist', track.artist.artistId)
                             }}
@@ -454,8 +487,10 @@ export default function Search({ initialQuery = '', onNavigate }: SearchProps) {
                       <p className="text-sm font-medium truncate">{album.name}</p>
                       <p className="text-xs text-muted-foreground truncate">
                         <span
-                          className="hover:underline cursor-pointer"
-                          onDoubleClick={(e) => {
+                          className={cn(
+                            album.artist?.artistId && 'hover:underline cursor-pointer hover:text-foreground transition-colors'
+                          )}
+                          onClick={(e) => {
                             e.stopPropagation()
                             if (album.artist?.artistId) onNavigate('artist', album.artist.artistId)
                           }}
@@ -494,8 +529,8 @@ export default function Search({ initialQuery = '', onNavigate }: SearchProps) {
                       <p className="text-xs text-muted-foreground truncate">
                         {pl.artist?.artistId ? (
                           <span
-                            className="hover:underline cursor-pointer"
-                            onDoubleClick={(e) => {
+                            className="hover:underline cursor-pointer hover:text-foreground transition-colors"
+                            onClick={(e) => {
                               e.stopPropagation()
                               onNavigate('artist', pl.artist!.artistId!)
                             }}
@@ -561,7 +596,21 @@ export default function Search({ initialQuery = '', onNavigate }: SearchProps) {
                                 </div>
                                 <div className="px-3 py-3">
                                   <p className="text-sm font-medium truncate">{item.name}</p>
-                                  <p className="text-xs text-muted-foreground truncate">{item.artist?.name}</p>
+                                  <p className="text-xs text-muted-foreground truncate">
+                                    {item.artist?.artistId ? (
+                                      <span
+                                        className="hover:underline cursor-pointer hover:text-foreground transition-colors"
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          onNavigate('artist', item.artist.artistId!)
+                                        }}
+                                      >
+                                        {item.artist.name}
+                                      </span>
+                                    ) : (
+                                      item.artist?.name
+                                    )}
+                                  </p>
                                 </div>
                               </CardContent>
                             </Card>
@@ -588,7 +637,21 @@ export default function Search({ initialQuery = '', onNavigate }: SearchProps) {
                                 </div>
                                 <div className="px-3 py-3">
                                   <p className="text-sm font-medium truncate">{item.name}</p>
-                                  <p className="text-xs text-muted-foreground truncate">{item.artist?.name}</p>
+                                  <p className="text-xs text-muted-foreground truncate">
+                                    {item.artist?.artistId ? (
+                                      <span
+                                        className="hover:underline cursor-pointer hover:text-foreground transition-colors"
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          onNavigate('artist', item.artist.artistId!)
+                                        }}
+                                      >
+                                        {item.artist.name}
+                                      </span>
+                                    ) : (
+                                      item.artist?.name
+                                    )}
+                                  </p>
                                 </div>
                               </CardContent>
                             </Card>
@@ -638,6 +701,7 @@ export default function Search({ initialQuery = '', onNavigate }: SearchProps) {
           )}
         </div>
       )}
+      </div>
 
       {/* Floating Context Menu Overlay */}
       {contextMenu && (

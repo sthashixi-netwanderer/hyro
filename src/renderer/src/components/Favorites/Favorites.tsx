@@ -65,16 +65,22 @@ export default function Favorites() {
   }
 
   return (
-    <div className="p-8">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Favorites</h1>
-        {tracks.length > 0 && (
-          <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={handlePlayAllTracks}>
-            <Play className="size-4 fill-current" />
-            Play All Songs
-          </Button>
-        )}
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* Fixed Header */}
+      <div className="shrink-0 px-8 pt-8 pb-4 bg-background/95 backdrop-blur-md z-20 border-b border-border/10">
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-bold">Favorites</h1>
+          {tracks.length > 0 && (
+            <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={handlePlayAllTracks}>
+              <Play className="size-4 fill-current" />
+              Play All Songs
+            </Button>
+          )}
+        </div>
       </div>
+
+      {/* Scrollable Content */}
+      <div className="flex-1 overflow-y-auto px-8 py-6">
 
       {/* Songs Section */}
       {tracks.length > 0 && (
@@ -236,6 +242,7 @@ export default function Favorites() {
           </div>
         </section>
       )}
+      </div>
     </div>
   )
 }

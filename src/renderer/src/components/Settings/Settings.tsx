@@ -1,7 +1,13 @@
+import { logger } from '../../utils/logger'
 import { useState, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Check, Key, ExternalLink, AlertCircle, Globe, Download, Loader2, RefreshCw } from 'lucide-react'
+import { Check, Key, ExternalLink, AlertCircle, Globe, Download, Loader2, RefreshCw, Activity, Palette, Minimize2 } from 'lucide-react'
+import DataUsageModal from './DataUsageModal'
+import type { DataUsageStats } from '../../../../shared/types'
+import { formatBytes } from '../../../../shared/utils'
+import { cn } from '@/lib/utils'
+import ThemeToggle from '../ThemeToggle/ThemeToggle'
 
 const BROWSER_OPTIONS = [
   { value: '', label: 'Disabled' },
@@ -19,6 +25,7 @@ export default function Settings() {
   const [savedApiKey, setSavedApiKey] = useState('')
   const [cookieBrowser, setCookieBrowser] = useState('')
   const [savedCookieBrowser, setSavedCookieBrowser] = useState('')
+  const [minimizeToTray, setMinimizeToTray] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -35,19 +42,55 @@ export default function Settings() {
   const [ytdlpMessage, setYtdlpMessage] = useState<string | null>(null)
   const [ytdlpError, setYtdlpError] = useState<string | null>(null)
 
+  // Data Usage state
+  const [dataUsageStats, setDataUsageStats] = useState<DataUsageStats | null>(null)
+  const [isDataUsageModalOpen, setIsDataUsageModalOpen] = useState(false)
+
   useEffect(() => {
     window.api.getSettings().then((settings) => {
       setApiKey(settings.groqApiKey)
       setSavedApiKey(settings.groqApiKey)
       setCookieBrowser(settings.cookieBrowser)
       setSavedCookieBrowser(settings.cookieBrowser)
+      setMinimizeToTray(!!settings.minimizeToTray)
       setLoading(false)
     })
+  }, [])
+
+  const handleToggleTray = useCallback(async (val: boolean) => {
+    setMinimizeToTray(val)
+    try {
+      await window.api.saveSettings({ minimizeToTray: val })
+    } catch (err) {
+      logger.error('Failed to save minimize to tray setting:', err)
+    }
   }, [])
 
   // Check yt-dlp version on mount
   useEffect(() => {
     checkYtdlpUpdate()
+  }, [])
+
+  const loadDataUsageStats = useCallback(async () => {
+    try {
+      const stats = await window.api.getDataUsage()
+      setDataUsageStats(stats)
+    } catch (err) {
+      logger.error('Failed to load data usage stats:', err)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadDataUsageStats()
+  }, [loadDataUsageStats])
+
+  const handleResetDataUsage = useCallback(async () => {
+    try {
+      const resetStats = await window.api.resetDataUsage()
+      setDataUsageStats(resetStats)
+    } catch (err) {
+      logger.error('Failed to reset data usage:', err)
+    }
   }, [])
 
   const checkYtdlpUpdate = useCallback(async () => {
@@ -79,18 +122,18 @@ export default function Settings() {
     try {
       const result = await window.api.updateYtDlp()
       if (result.success) {
-        setYtdlpMessage(result.message || 'Update completed')
-        setYtdlpCurrent(result.version)
-        setYtdlpUpdateAvailable(false)
+        setYtdlpMessage(result.message || 'Update completed successfully')
+        if (result.version) setYtdlpCurrent(result.version)
+        await checkYtdlpUpdate()
       } else {
-        setYtdlpError(result.error || 'Update failed')
+        setYtdlpError(result.error || result.message || 'Update failed')
       }
-    } catch {
-      setYtdlpError('Failed to update yt-dlp')
+    } catch (err: any) {
+      setYtdlpError(err?.message || 'Failed to update yt-dlp')
     } finally {
       setYtdlpUpdating(false)
     }
-  }, [])
+  }, [checkYtdlpUpdate])
 
   const handleSave = useCallback(async () => {
     setSaving(true)
@@ -111,22 +154,87 @@ export default function Settings() {
   if (loading) {
     return (
       <div className="p-8">
-        <div className="animate-pulse-once space-y-6 max-w-2xl">
-          <div className="h-8 w-48 bg-white/5 rounded" />
-          <div className="h-4 w-96 bg-white/5 rounded" />
-          <div className="h-40 bg-white/5 rounded-2xl" />
+        <div className="animate-pulse-once space-y-6 max-w-2xl mx-auto">
+          <div className="h-8 w-48 bg-muted rounded" />
+          <div className="h-4 w-96 bg-muted rounded" />
+          <div className="h-40 bg-muted rounded-2xl" />
         </div>
       </div>
     )
   }
 
   return (
-    <div className="p-8 max-w-2xl">
-      <h1 className="text-2xl font-bold text-foreground mb-1">Settings</h1>
-      <p className="text-sm text-muted-foreground mb-8">Configure app integrations and preferences.</p>
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* Fixed Header */}
+      <div className="shrink-0 px-8 pt-8 pb-4 bg-background/95 backdrop-blur-md z-20 border-b border-border/20">
+        <div className="max-w-2xl mx-auto w-full">
+          <h1 className="text-2xl font-bold text-foreground mb-1">Settings</h1>
+          <p className="text-sm text-muted-foreground">Configure app integrations and preferences.</p>
+        </div>
+      </div>
 
-      {/* Groq API Key Section */}
-      <div className="rounded-2xl bg-white/[0.04] border border-white/[0.08] p-6">
+      {/* Scrollable Content */}
+      <div className="flex-1 overflow-y-auto px-8 py-6">
+        <div className="max-w-2xl mx-auto w-full space-y-4">
+        {/* Appearance / Theme Section */}
+        <div className="rounded-2xl bg-card/60 border border-border/80 p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="size-9 rounded-xl bg-primary/10 flex items-center justify-center">
+              <Palette className="size-4 text-primary" />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-foreground">App Theme</h2>
+              <p className="text-xs text-muted-foreground">Customize application color scheme & mode</p>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Choose your preferred visual theme for Hyro Music. System Default automatically matches your system's light or dark mode.
+            </p>
+
+            <ThemeToggle variant="inline" className="mt-2" />
+          </div>
+        </div>
+
+        {/* System Tray & Background Playback Section */}
+        <div className="rounded-2xl bg-card border border-border/80 p-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="size-9 rounded-xl bg-primary/10 flex items-center justify-center">
+                <Minimize2 className="size-4 text-primary" />
+              </div>
+              <div>
+                <h2 className="text-sm font-semibold text-foreground">Minimize to System Tray on Close</h2>
+                <p className="text-xs text-muted-foreground">Keep playing tracks in background when closing app window</p>
+              </div>
+            </div>
+
+            {/* Switch Toggle */}
+            <button
+              role="switch"
+              aria-checked={minimizeToTray}
+              onClick={() => handleToggleTray(!minimizeToTray)}
+              className={cn(
+                'relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+                minimizeToTray ? 'bg-primary' : 'bg-muted'
+              )}
+            >
+              <span
+                className={cn(
+                  'pointer-events-none inline-block size-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out',
+                  minimizeToTray ? 'translate-x-5' : 'translate-x-0'
+                )}
+              />
+            </button>
+          </div>
+          <p className="text-xs text-muted-foreground leading-relaxed mt-3 pt-3 border-t border-border/40">
+            When enabled, closing the window hides Hyro Music to the system tray so your music continues playing without interruption. Right-click the tray icon to show controls or exit.
+          </p>
+        </div>
+
+        {/* Groq API Key Section */}
+      <div className="rounded-2xl bg-card border border-border/80 p-6">
         <div className="flex items-center gap-3 mb-4">
           <div className="size-9 rounded-xl bg-primary/10 flex items-center justify-center">
             <Key className="size-4 text-primary" />
@@ -207,7 +315,7 @@ export default function Settings() {
       </div>
 
       {/* Browser Cookies Section */}
-      <div className="rounded-2xl bg-white/[0.04] border border-white/[0.08] p-6 mt-4">
+      <div className="rounded-2xl bg-card border border-border/80 p-6 mt-4">
         <div className="flex items-center gap-3 mb-4">
           <div className="size-9 rounded-xl bg-primary/10 flex items-center justify-center">
             <Globe className="size-4 text-primary" />
@@ -261,7 +369,7 @@ export default function Settings() {
       </div>
 
       {/* yt-dlp Section */}
-      <div className="rounded-2xl bg-white/[0.04] border border-white/[0.08] p-6 mt-4">
+      <div className="rounded-2xl bg-card border border-border/80 p-6 mt-4">
         <div className="flex items-center gap-3 mb-4">
           <div className="size-9 rounded-xl bg-primary/10 flex items-center justify-center">
             <Download className="size-4 text-primary" />
@@ -334,24 +442,28 @@ export default function Settings() {
               {ytdlpChecking ? 'Checking...' : 'Check for updates'}
             </Button>
 
-            {ytdlpUpdateAvailable && (
+            {ytdlpInstalled && (
               <Button
-                variant="default"
+                variant={ytdlpUpdateAvailable ? 'default' : 'outline'}
                 size="sm"
                 className="gap-1.5"
                 onClick={handleUpdateYtdlp}
-                disabled={ytdlpUpdating}
+                disabled={ytdlpUpdating || ytdlpChecking}
               >
                 {ytdlpUpdating ? (
                   <Loader2 className="size-3.5 animate-spin" />
                 ) : (
                   <Download className="size-3.5" />
                 )}
-                {ytdlpUpdating ? 'Updating...' : `Update to v${ytdlpLatest}`}
+                {ytdlpUpdating
+                  ? 'Updating yt-dlp…'
+                  : ytdlpUpdateAvailable
+                  ? `Update to v${ytdlpLatest}`
+                  : 'Update yt-dlp'}
               </Button>
             )}
 
-            {!ytdlpUpdateAvailable && ytdlpInstalled && ytdlpLatest && (
+            {!ytdlpUpdateAvailable && ytdlpInstalled && ytdlpLatest && !ytdlpUpdating && (
               <span className="text-xs text-muted-foreground">
                 Up to date
               </span>
@@ -371,6 +483,58 @@ export default function Settings() {
           </div>
         </div>
       </div>
+
+      {/* Data Usage Section */}
+      <div className="rounded-2xl bg-card border border-border/80 p-6 mt-4">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className="size-9 rounded-xl bg-primary/10 flex items-center justify-center">
+              <Activity className="size-4 text-primary" />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-foreground">Data Usage Tracker</h2>
+              <p className="text-xs text-muted-foreground">Monitor network data used during track playback & caching</p>
+            </div>
+          </div>
+          {dataUsageStats && (
+            <span className="text-xs font-bold font-mono text-primary bg-primary/10 border border-primary/20 px-3 py-1 rounded-xl">
+              {formatBytes(dataUsageStats.totalBytes)}
+            </span>
+          )}
+        </div>
+
+        <div className="space-y-4">
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            Track total bandwidth consumed while playing online audio streams, pre-caching queue tracks,
+            and downloading songs to your library.
+          </p>
+
+          <div className="flex items-center justify-between pt-1">
+            <div className="text-xs text-muted-foreground">
+              Tracks Played: <strong className="text-foreground font-mono">{dataUsageStats?.tracksPlayedCount || 0}</strong>
+            </div>
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => setIsDataUsageModalOpen(true)}
+              className="gap-2 text-xs font-semibold rounded-xl"
+            >
+              <Activity className="size-3.5" />
+              Track Data Usage
+            </Button>
+          </div>
+        </div>
+      </div>
     </div>
+  </div>
+
+  <DataUsageModal
+    isOpen={isDataUsageModalOpen}
+    onClose={() => setIsDataUsageModalOpen(false)}
+    stats={dataUsageStats}
+    onRefresh={loadDataUsageStats}
+    onReset={handleResetDataUsage}
+  />
+</div>
   )
 }

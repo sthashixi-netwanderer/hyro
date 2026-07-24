@@ -1,12 +1,15 @@
-import { Minus, Square, X } from 'lucide-react'
+import { Minus, Square, X, Sun, Moon, Monitor } from 'lucide-react'
 import { usePlayer } from '../../context/PlayerContext'
 import { useDownload } from '../../context/DownloadContext'
+import { useTheme, type Theme } from '../../context/ThemeContext'
 import { cn } from '@/lib/utils'
-import logo from '../../assets/logo.png'
+
+const THEME_CYCLE: Theme[] = ['dark', 'light', 'system']
 
 export default function TitleBar() {
-  const { currentTrack, isPlaying } = usePlayer()
+  const { currentTrack } = usePlayer()
   const { downloads, isPopupExpanded, setIsPopupExpanded } = useDownload()
+  const { theme, setTheme } = useTheme()
 
   const activeDownloads = downloads.filter(d => d.status === 'downloading')
   const activeCount = activeDownloads.length
@@ -26,24 +29,35 @@ export default function TitleBar() {
     window.api.closeWindow()
   }
 
+  const handleCycleTheme = () => {
+    const idx = THEME_CYCLE.indexOf(theme)
+    const next = THEME_CYCLE[(idx + 1) % THEME_CYCLE.length]
+    setTheme(next)
+  }
+
+  const themeIcon = theme === 'light'
+    ? <Sun className="size-3.5 text-amber-500" />
+    : theme === 'dark'
+      ? <Moon className="size-3.5 text-emerald-400" />
+      : <Monitor className="size-3.5 text-blue-400" />
+
+  const themeLabel = theme === 'system' ? 'System' : theme.charAt(0).toUpperCase() + theme.slice(1)
+
   return (
     <div
-      className="h-8 bg-[#0a0a0a] border-b border-border/20 flex items-center justify-between px-4 select-none shrink-0 z-50"
+      className="h-8 bg-background border-b border-border/40 flex items-center justify-between px-4 select-none shrink-0 z-50 transition-colors"
       style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
     >
       {/* Left side: App Logo & Name */}
       <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
-        <img
-          src={logo}
-          alt="Hyro Logo"
-          className={`size-4 object-contain ${isPlaying ? 'animate-spin' : ''}`}
-          style={{ animationDuration: '6s' }}
-        />
-        <span>Hyro Music</span>
+        <span className="font-mono text-[11px] text-primary font-black tracking-wider px-1.5 py-0.5 rounded bg-primary/10 border border-primary/20">
+          HYRO
+        </span>
+        <span className="text-foreground/80 font-medium">Music</span>
       </div>
 
       {/* Center: Current Track info (subtle premium touch) */}
-      <div className="hidden sm:block text-[11px] text-muted-foreground/60 font-medium max-w-[40%] truncate">
+      <div className="hidden sm:block text-[11px] text-muted-foreground font-medium max-w-[40%] truncate">
         {currentTrack ? `${currentTrack.name} - ${currentTrack.artist?.name || 'Unknown'}` : ''}
       </div>
 
@@ -87,24 +101,32 @@ export default function TitleBar() {
           </button>
         )}
 
+        <button
+          onClick={handleCycleTheme}
+          className="size-8 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer"
+          title={`Theme: ${themeLabel} — Click to cycle`}
+        >
+          {themeIcon}
+        </button>
+
         <div className="flex items-center h-full">
           <button
             onClick={handleMinimize}
-            className="h-full px-4 hover:bg-white/5 text-muted-foreground hover:text-white flex items-center justify-center transition-colors"
+            className="h-full px-3.5 hover:bg-accent text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors"
             title="Minimize"
           >
             <Minus className="size-3.5" />
           </button>
           <button
             onClick={handleMaximize}
-            className="h-full px-4 hover:bg-white/5 text-muted-foreground hover:text-white flex items-center justify-center transition-colors"
+            className="h-full px-3.5 hover:bg-accent text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors"
             title="Maximize"
           >
             <Square className="size-3" />
           </button>
           <button
             onClick={handleClose}
-            className="h-full px-4 hover:bg-red-500 text-muted-foreground hover:text-white flex items-center justify-center transition-colors"
+            className="h-full px-3.5 hover:bg-destructive hover:text-destructive-foreground text-muted-foreground flex items-center justify-center transition-colors"
             title="Close"
           >
             <X className="size-3.5" />

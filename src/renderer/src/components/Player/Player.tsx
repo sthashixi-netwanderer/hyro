@@ -5,11 +5,11 @@ import { useDownload } from '../../context/DownloadContext'
 import { useFavorites } from '../../context/FavoritesContext'
 import { getTrackThumbnailUrl } from '../../../../shared/utils'
 import { ASCII_LOGO } from '../../../../shared/asciiLogo'
-import logo from '../../assets/logo.png'
 import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
 import FavoriteButton from '@/components/ui/FavoriteButton'
-import { Shuffle, SkipBack, Play, Pause, SkipForward, Square, Volume2, VolumeX, Music, Download, Check, Disc3, Mic2, Maximize2, Minimize2, Repeat, Repeat1 } from 'lucide-react'
+import CachedImage from '@/components/ui/CachedImage'
+import { Shuffle, SkipBack, Play, Pause, SkipForward, Square, Volume2, VolumeX, Music, Download, Check, Disc3, Mic2, Maximize2, Minimize2, Repeat, Repeat1, Headphones, Bluetooth, ChevronDown, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface SyncedLine {
@@ -42,11 +42,53 @@ export default function Player() {
     setVolume,
     toggleMute,
     seek,
-    getAudioElement
+    getAudioElement,
+    audioOutputDevices,
+    selectedDeviceId,
+    switchAudioOutput
   } = usePlayer()
   const { navigateTo } = useNavigation()
   const { isDownloaded, isDownloading, getProgress, downloadTrack } = useDownload()
   const { isFavorited } = useFavorites()
+
+  // Audio output device selector state
+  const [showDeviceMenu, setShowDeviceMenu] = useState(false)
+  const [deviceMenuPos, setDeviceMenuPos] = useState({ top: 0, left: 0 })
+  const deviceTriggerRef = useRef<HTMLDivElement>(null)
+
+  // Close device menu on outside click or Escape
+  useEffect(() => {
+    if (!showDeviceMenu) return
+    function handleClick(e: MouseEvent) {
+      const target = e.target as Node
+      if (deviceTriggerRef.current && !deviceTriggerRef.current.contains(target)) {
+        setShowDeviceMenu(false)
+      }
+    }
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setShowDeviceMenu(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    document.addEventListener('keydown', handleKey)
+    return () => {
+      document.removeEventListener('mousedown', handleClick)
+      document.removeEventListener('keydown', handleKey)
+    }
+  }, [showDeviceMenu])
+
+  const openDeviceMenu = useCallback(() => {
+    setShowDeviceMenu((prev) => {
+      if (prev) return false // toggle off
+      if (deviceTriggerRef.current) {
+        const rect = deviceTriggerRef.current.getBoundingClientRect()
+        setDeviceMenuPos({
+          top: rect.top - 8,
+          left: rect.right
+        })
+      }
+      return true
+    })
+  }, [])
 
   // Lyrics state
   const [lyricsData, setLyricsData] = useState<LyricsData | null>(null)
@@ -216,11 +258,7 @@ export default function Player() {
       {/* Lyrics Panel */}
       {lyricsVisible && (
         <div className="mx-auto max-w-[1200px] mb-2">
-          <div className="rounded-2xl overflow-hidden relative max-h-[360px]">
-            {/* Glassmorphism background */}
-            <div className="absolute inset-0 bg-white/[0.04] backdrop-blur-2xl" />
-            <div className="absolute inset-0 border border-white/[0.08] rounded-2xl" />
-
+          <div className="rounded-2xl overflow-hidden relative max-h-[360px] bg-card/95 backdrop-blur-2xl border border-border/80 shadow-2xl">
             {/* Lyrics content */}
             <div
               ref={lyricsContainerRef}
@@ -228,7 +266,7 @@ export default function Player() {
             >
               {lyricsLoading ? (
                 <div className="flex items-center justify-center py-12">
-                  <div className="size-6 border-2 border-white/20 border-t-primary rounded-full animate-spin" />
+                  <div className="size-6 border-2 border-border border-t-primary rounded-full animate-spin" />
                 </div>
               ) : lyricsData ? (
                 <div className="space-y-1 text-center py-4">
@@ -244,10 +282,10 @@ export default function Player() {
                           className={cn(
                             'leading-relaxed transition-all duration-500 cursor-pointer',
                             isActive
-                              ? 'text-white text-2xl font-bold tracking-tight scale-105'
+                              ? 'text-primary text-2xl font-bold tracking-tight scale-105'
                               : isPast
-                                ? 'text-white/25 text-base'
-                                : 'text-white/45 text-base hover:text-white/60'
+                                ? 'text-muted-foreground/40 text-base'
+                                : 'text-muted-foreground text-base hover:text-foreground'
                           )}
                           onClick={() => {
                             seek(line.time)
@@ -264,7 +302,7 @@ export default function Player() {
                         key={i}
                         className={cn(
                           'text-sm leading-relaxed transition-colors duration-300',
-                          line.trim() ? 'text-white/70' : 'h-4'
+                          line.trim() ? 'text-foreground/80' : 'h-4'
                         )}
                       >
                         {line}
@@ -272,13 +310,13 @@ export default function Player() {
                     ))
                   )}
                   {lyricsData.provider && (
-                    <p className="text-[10px] text-white/20 text-center mt-4 italic">
+                    <p className="text-[10px] text-muted-foreground/50 text-center mt-4 italic">
                       Lyrics provided by {lyricsData.provider}
                     </p>
                   )}
                 </div>
               ) : (
-                <div className="flex flex-col items-center justify-center py-12 text-white/30">
+                <div className="flex flex-col items-center justify-center py-12 text-muted-foreground/40">
                   <Mic2 className="size-8 mb-2" />
                   <p className="text-sm">No lyrics available</p>
                 </div>
@@ -288,33 +326,30 @@ export default function Player() {
             {/* Close button */}
             <button
               onClick={() => setLyricsVisible(false)}
-              className="absolute top-3 right-3 size-7 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white/50 hover:text-white transition-colors text-xs"
+              className="absolute top-3 right-3 size-7 rounded-full bg-accent/60 hover:bg-accent flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors text-xs"
             >
-              ✕
+              <X className="size-3" />
             </button>
           </div>
         </div>
       )}
 
-      <div className="mx-auto max-w-[1200px] rounded-2xl overflow-hidden relative">
-        {/* Glassmorphism layers */}
-        <div className="absolute inset-0 rounded-2xl bg-white/[0.06] backdrop-blur-2xl" />
-        <div className="absolute inset-0 rounded-2xl border border-white/[0.08]" />
-        <div className="absolute inset-0 rounded-2xl shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]" />
-        <div className="absolute -top-px left-[10%] right-[10%] h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
+      <div className="mx-auto max-w-[1200px] rounded-2xl overflow-hidden relative bg-card/95 backdrop-blur-2xl border border-border/80 shadow-xl">
+        {/* Subtle accent border highlight */}
+        <div className="absolute -top-px left-[10%] right-[10%] h-px bg-gradient-to-r from-transparent via-primary/30 to-transparent" />
 
         {/* Content */}
         <div className="relative">
           {/* Progress bar at top */}
           <div
-            className="w-full h-[3px] bg-white/10 cursor-pointer group/progress relative rounded-t-2xl overflow-hidden"
+            className="w-full h-[3px] bg-muted cursor-pointer group/progress relative rounded-t-2xl overflow-hidden"
             onClick={handleProgressClick}
           >
             <div
               className="h-full bg-primary transition-all duration-100 relative"
               style={{ width: `${progressPercent}%` }}
             >
-              <div className="absolute right-0 top-1/2 -translate-y-1/2 size-3 bg-white rounded-full opacity-0 group-hover/progress:opacity-100 transition-opacity shadow-lg shadow-primary/30" />
+              <div className="absolute right-0 top-1/2 -translate-y-1/2 size-3 bg-foreground rounded-full opacity-0 group-hover/progress:opacity-100 transition-opacity shadow-md" />
             </div>
           </div>
 
@@ -322,27 +357,24 @@ export default function Player() {
           <div className="h-[80px] flex items-center px-6">
             {/* Left: Track Info + Actions */}
             <div className="flex items-center gap-3 w-[30%] min-w-0">
-              <div className="w-12 h-12 rounded-xl overflow-hidden bg-white/5 shrink-0 flex items-center justify-center shadow-lg ring-1 ring-white/[0.08]">
-                {currentTrack && getTrackThumbnailUrl(currentTrack) ? (
-                  <img
-                    src={getTrackThumbnailUrl(currentTrack)}
-                    alt={currentTrack?.name}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <Music className="size-5 text-white/30" />
-                )}
+              <div className="w-12 h-12 rounded-xl overflow-hidden bg-muted shrink-0 flex items-center justify-center shadow-md ring-1 ring-border/40">
+                <CachedImage
+                  src={currentTrack ? getTrackThumbnailUrl(currentTrack) : null}
+                  alt={currentTrack?.name}
+                  className="w-full h-full object-cover"
+                  fallbackIcon={<Music className="size-5 text-muted-foreground/50" />}
+                />
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium truncate text-white/90">{currentTrack?.name || 'No track selected'}</p>
-                <p className="text-xs text-white/40 truncate">
+                <p className="text-sm font-semibold truncate text-foreground">{currentTrack?.name || 'No track selected'}</p>
+                <p className="text-xs text-muted-foreground truncate">
                   {currentTrack?.artists && currentTrack.artists.length > 0 ? (
                     currentTrack.artists.map((art, artIdx) => (
                       <span key={art.artistId || art.name}>
                         {artIdx > 0 && <span className="cursor-default select-none">, </span>}
                         <span
                           className={cn(
-                            art.artistId && 'hover:underline cursor-pointer hover:text-white transition-colors'
+                            art.artistId && 'hover:underline cursor-pointer hover:text-foreground transition-colors'
                           )}
                           onClick={(e) => {
                             e.stopPropagation()
@@ -356,7 +388,7 @@ export default function Player() {
                   ) : (
                     <span
                       className={cn(
-                        currentTrack?.artist?.artistId && 'hover:underline cursor-pointer hover:text-white transition-colors'
+                        currentTrack?.artist?.artistId && 'hover:underline cursor-pointer hover:text-foreground transition-colors'
                       )}
                       onClick={(e) => {
                         e.stopPropagation()
@@ -375,7 +407,7 @@ export default function Player() {
                   {downloading ? (
                     <div className="relative shrink-0" title={`Downloading ${Math.round(downloadProgress?.progress || 0)}%`}>
                       <svg className="size-7 -rotate-90" viewBox="0 0 32 32">
-                        <circle cx="16" cy="16" r="14" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-white/10" />
+                        <circle cx="16" cy="16" r="14" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-muted/30" />
                         <circle
                           cx="16" cy="16" r="14" fill="none" stroke="currentColor" strokeWidth="2.5"
                           className="text-primary transition-all duration-300"
@@ -396,7 +428,7 @@ export default function Player() {
                     <Button
                       variant="ghost"
                       size="icon-sm"
-                      className="text-white/40 hover:text-white transition-colors"
+                      className="text-muted-foreground hover:text-foreground transition-colors"
                       onClick={() => downloadTrack(currentTrack)}
                       title="Download"
                     >
@@ -410,7 +442,7 @@ export default function Player() {
                     size="icon-sm"
                     className={cn(
                       'transition-colors',
-                      lyricsVisible ? 'text-primary hover:text-primary' : 'text-white/40 hover:text-white'
+                      lyricsVisible ? 'text-primary hover:text-primary' : 'text-muted-foreground hover:text-foreground'
                     )}
                     onClick={() => setLyricsVisible(!lyricsVisible)}
                     title="Lyrics"
@@ -423,7 +455,7 @@ export default function Player() {
                     <Button
                       variant="ghost"
                       size="icon-sm"
-                      className="text-white/40 hover:text-white transition-colors"
+                      className="text-muted-foreground hover:text-foreground transition-colors"
                       onClick={() => navigateTo('album', currentTrack.album!.albumId)}
                       title={`Go to ${currentTrack.album.name}`}
                     >
@@ -436,7 +468,7 @@ export default function Player() {
                     id={currentTrack.videoId}
                     type="track"
                     data={currentTrack}
-                    className="text-white/40 hover:text-primary"
+                    className="text-muted-foreground hover:text-primary"
                   />
                 </div>
               )}
@@ -449,7 +481,7 @@ export default function Player() {
                   variant="ghost"
                   size="icon-sm"
                   className={cn(
-                    'text-white/40 hover:text-white transition-colors',
+                    'text-muted-foreground hover:text-foreground transition-colors',
                     isShuffled && 'text-primary hover:text-primary'
                   )}
                   onClick={toggleShuffle}
@@ -460,7 +492,7 @@ export default function Player() {
                 <Button
                   variant="ghost"
                   size="icon-sm"
-                  className="text-white/40 hover:text-white transition-colors"
+                  className="text-muted-foreground hover:text-foreground transition-colors"
                   onClick={prevTrack}
                   title="Previous"
                 >
@@ -468,7 +500,7 @@ export default function Player() {
                 </Button>
                 <Button
                   size="icon"
-                  className="h-10 w-10 rounded-full bg-white text-black hover:scale-105 hover:bg-white/90 transition-all shadow-lg shadow-white/10"
+                  className="h-10 w-10 rounded-full bg-primary text-primary-foreground hover:scale-105 hover:bg-primary/90 transition-all shadow-md shadow-primary/20"
                   onClick={togglePlay}
                   title={isPlaying ? 'Pause' : 'Play'}
                 >
@@ -481,7 +513,7 @@ export default function Player() {
                 <Button
                   variant="ghost"
                   size="icon-sm"
-                  className="text-white/40 hover:text-white transition-colors"
+                  className="text-muted-foreground hover:text-foreground transition-colors"
                   onClick={nextTrack}
                   title="Next"
                 >
@@ -491,7 +523,7 @@ export default function Player() {
                   variant="ghost"
                   size="icon-sm"
                   className={cn(
-                    'text-white/40 hover:text-white transition-colors',
+                    'text-muted-foreground hover:text-foreground transition-colors',
                     repeatMode !== 'off' && 'text-primary hover:text-primary'
                   )}
                   onClick={toggleRepeat}
@@ -512,7 +544,7 @@ export default function Player() {
                 <Button
                   variant="ghost"
                   size="icon-sm"
-                  className="text-white/40 hover:text-white transition-colors"
+                  className="text-muted-foreground hover:text-foreground transition-colors"
                   onClick={stop}
                   title="Stop"
                 >
@@ -521,16 +553,16 @@ export default function Player() {
               </div>
 
               <div className="flex items-center gap-2 w-full max-w-[480px]">
-                <span className="text-[10px] text-white/30 tabular-nums w-9 text-right">{formatTime(currentTime)}</span>
+                <span className="text-[10px] text-muted-foreground/80 tabular-nums w-9 text-right font-medium">{formatTime(currentTime)}</span>
                 <div className="flex-1 relative group cursor-pointer" onClick={handleProgressClick}>
-                  <div className="h-1 bg-white/10 rounded-full overflow-hidden group-hover:h-1.5 transition-all">
+                  <div className="h-1 bg-muted rounded-full overflow-hidden group-hover:h-1.5 transition-all">
                     <div
-                      className="h-full bg-white/70 group-hover:bg-primary rounded-full transition-colors"
+                      className="h-full bg-foreground/70 group-hover:bg-primary rounded-full transition-colors"
                       style={{ width: `${progressPercent}%` }}
                     />
                   </div>
                 </div>
-                <span className="text-[10px] text-white/30 tabular-nums w-9">{formatTime(duration)}</span>
+                <span className="text-[10px] text-muted-foreground/80 tabular-nums w-9 font-medium">{formatTime(duration)}</span>
               </div>
             </div>
 
@@ -539,7 +571,7 @@ export default function Player() {
               <Button
                 variant="ghost"
                 size="icon-sm"
-                className="text-white/40 hover:text-white transition-colors"
+                className="text-muted-foreground hover:text-foreground transition-colors"
                 onClick={toggleMute}
                 title={isMuted ? 'Unmute' : 'Mute'}
               >
@@ -553,13 +585,73 @@ export default function Player() {
                 value={[isMuted ? 0 : volume]}
                 onValueChange={([val]) => setVolume(val)}
               />
-              <span className="text-[10px] text-white/50 w-8 text-right font-medium tabular-nums select-none shrink-0">
+              <span className="text-[10px] text-muted-foreground/80 w-8 text-right font-medium tabular-nums select-none shrink-0">
                 {Math.round((isMuted ? 0 : volume) * 100)}%
               </span>
+              {/* Audio Output Device Selector */}
+              <div ref={deviceTriggerRef} className="relative">
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                  onClick={openDeviceMenu}
+                  title="Audio Output"
+                >
+                  {(() => {
+                    const selDevice = audioOutputDevices.find(d => d.deviceId === selectedDeviceId)
+                    const label = selDevice?.label?.toLowerCase() || ''
+                    if (label.includes('headphone') || label.includes('headset')) {
+                      return <Headphones className="size-4" />
+                    }
+                    if (label.includes('bluetooth')) {
+                      return <Bluetooth className="size-4" />
+                    }
+                    return <Volume2 className="size-4" />
+                  })()}
+                  <ChevronDown className="size-3 ml-0.5" />
+                </Button>
+                {showDeviceMenu && audioOutputDevices.length > 0 && (
+                  <div
+                    className="fixed w-56 rounded-xl overflow-hidden bg-popover text-popover-foreground border border-border shadow-2xl z-[200]"
+                    style={{
+                      top: `${deviceMenuPos.top}px`,
+                      right: `${window.innerWidth - deviceMenuPos.left}px`
+                    }}
+                  >
+                    {audioOutputDevices.map((device) => {
+                      const isActive = device.deviceId === selectedDeviceId
+                      const label = device.label.toLowerCase()
+                      let icon = <Volume2 className="size-4 shrink-0" />
+                      if (label.includes('headphone') || label.includes('headset')) icon = <Headphones className="size-4 shrink-0" />
+                      else if (label.includes('bluetooth')) icon = <Bluetooth className="size-4 shrink-0" />
+                      return (
+                        <button
+                          key={device.deviceId}
+                          onClick={() => {
+                            switchAudioOutput(device.deviceId)
+                            setShowDeviceMenu(false)
+                          }}
+                          className={cn(
+                            'w-full flex items-center gap-3 px-3 py-2 text-sm transition-colors text-left',
+                            isActive
+                              ? 'text-foreground font-semibold bg-accent'
+                              : 'text-muted-foreground hover:text-foreground hover:bg-accent/60'
+                          )}
+                        >
+                          {icon}
+                          <span className="truncate flex-1">{device.label}</span>
+                          {isActive && <Check className="size-3.5 text-primary shrink-0" />}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+
               <Button
                 variant="ghost"
                 size="icon-sm"
-                className="text-white/40 hover:text-white transition-colors ml-1"
+                className="text-muted-foreground hover:text-foreground transition-colors ml-1"
                 onClick={() => {
                   window.api.setFullScreen(true)
                 }}
@@ -594,12 +686,7 @@ export default function Player() {
           {/* Top Header */}
           <div className={cn("relative z-10 flex items-center justify-between px-8 py-6 transition-all duration-500 transform", !showControls && "opacity-0 -translate-y-4 pointer-events-none")}>
             <div className="flex items-center gap-3">
-              <img
-                src={logo}
-                alt="Hyro Logo"
-                className="size-6 object-contain animate-spin"
-                style={{ animationDuration: '6s' }}
-              />
+              <span className="font-mono text-xs font-black text-primary tracking-widest px-2 py-0.5 rounded bg-primary/10 border border-primary/20">HYRO</span>
               <span className="text-xs font-semibold tracking-widest text-white/50 uppercase">Now Playing</span>
             </div>
             <Button
@@ -618,15 +705,12 @@ export default function Player() {
             {/* Left: Album Art + Meta info (5 cols) */}
             <div className="md:col-span-5 flex flex-col items-center md:items-start text-center md:text-left min-w-0">
               <div className="group relative w-[280px] h-[280px] sm:w-[320px] sm:h-[320px] lg:w-[380px] lg:h-[380px] rounded-2xl overflow-hidden shadow-[0_25px_60px_-15px_rgba(0,0,0,0.9)] bg-white/5 flex items-center justify-center ring-1 ring-white/10 transition-transform duration-500 hover:scale-[1.02]">
-                {currentTrack && getTrackThumbnailUrl(currentTrack) ? (
-                  <img
-                    src={getTrackThumbnailUrl(currentTrack)}
-                    alt={currentTrack.name}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <Music className="size-20 text-white/20" />
-                )}
+                <CachedImage
+                  src={currentTrack ? getTrackThumbnailUrl(currentTrack) : null}
+                  alt={currentTrack?.name}
+                  className="w-full h-full object-cover"
+                  fallbackIcon={<Music className="size-20 text-white/20" />}
+                />
                 <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                   <Disc3 className="size-16 text-white/80 animate-spin" style={{ animationDuration: '10s' }} />
                 </div>
@@ -916,6 +1000,65 @@ export default function Player() {
                   <span className="text-xs text-white/50 w-10 text-right font-medium tabular-nums select-none shrink-0">
                     {Math.round((isMuted ? 0 : volume) * 100)}%
                   </span>
+                  {/* Audio Output Device Selector */}
+                  <div ref={deviceTriggerRef} className="relative">
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      className="text-white/40 hover:text-white transition-colors"
+                      onClick={openDeviceMenu}
+                      title="Audio Output"
+                    >
+                      {(() => {
+                        const selDevice = audioOutputDevices.find(d => d.deviceId === selectedDeviceId)
+                        const label = selDevice?.label?.toLowerCase() || ''
+                        if (label.includes('headphone') || label.includes('headset')) {
+                          return <Headphones className="size-5" />
+                        }
+                        if (label.includes('bluetooth')) {
+                          return <Bluetooth className="size-5" />
+                        }
+                        return <Volume2 className="size-5" />
+                      })()}
+                      <ChevronDown className="size-3.5 ml-0.5" />
+                    </Button>
+                    {showDeviceMenu && audioOutputDevices.length > 0 && (
+                      <div
+                        className="fixed w-56 rounded-xl overflow-hidden bg-white/[0.08] backdrop-blur-2xl border border-white/[0.08] shadow-2xl z-[200]"
+                        style={{
+                          top: `${deviceMenuPos.top}px`,
+                          right: `${window.innerWidth - deviceMenuPos.left}px`
+                        }}
+                      >
+                        {audioOutputDevices.map((device) => {
+                          const isActive = device.deviceId === selectedDeviceId
+                          const label = device.label.toLowerCase()
+                          let icon = <Volume2 className="size-4 shrink-0" />
+                          if (label.includes('headphone') || label.includes('headset')) icon = <Headphones className="size-4 shrink-0" />
+                          else if (label.includes('bluetooth')) icon = <Bluetooth className="size-4 shrink-0" />
+                          return (
+                            <button
+                              key={device.deviceId}
+                              onClick={() => {
+                                switchAudioOutput(device.deviceId)
+                                setShowDeviceMenu(false)
+                              }}
+                              className={cn(
+                                'w-full flex items-center gap-3 px-3 py-2 text-sm transition-colors',
+                                isActive
+                                  ? 'text-white bg-white/[0.08]'
+                                  : 'text-white/60 hover:text-white hover:bg-white/[0.04]'
+                              )}
+                            >
+                              {icon}
+                              <span className="truncate flex-1 text-left">{device.label}</span>
+                              {isActive && <Check className="size-3.5 text-primary shrink-0" />}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>

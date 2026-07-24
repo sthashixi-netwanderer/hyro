@@ -37,6 +37,7 @@ export interface Album {
   thumbnails: Thumbnail[]
   type: 'ALBUM'
   songs?: Track[]
+  releaseType?: string
 }
 
 export interface Playlist {
@@ -113,3 +114,33 @@ export interface FavoriteItem {
   data: any
   addedAt: string
 }
+
+export interface TimeframeUsage {
+  totalBytes: number
+  streamingBytes: number
+  cacheBytes: number
+  downloadBytes: number
+  tracksPlayedCount: number
+}
+
+export interface DailyUsageRecord {
+  streamingBytes: number
+  cacheBytes: number
+  downloadBytes: number
+  tracksPlayedCount: number
+}
+
+export interface DataUsageStats {
+  totalBytes: number
+  streamingBytes: number
+  cacheBytes: number
+  downloadBytes: number
+  tracksPlayedCount: number
+  sessionBytes: number
+  lastResetDate: string
+  today: TimeframeUsage
+  thisWeek: TimeframeUsage
+  thisMonth: TimeframeUsage
+  dailyHistory: Record<string, DailyUsageRecord>
+}
+

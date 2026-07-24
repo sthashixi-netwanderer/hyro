@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger'
 import React, { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react'
 import type { Track } from '../../../shared/types'
 import { usePlayer } from './PlayerContext'
@@ -45,7 +46,7 @@ export function HistoryProvider({ children }: { children: ReactNode }) {
       const entries = await window.api.getHistory()
       setHistory(entries)
     } catch (err) {
-      console.error('Failed to load history:', err)
+      logger.error('Failed to load history:', err)
     } finally {
       setLoading(false)
     }
@@ -56,7 +57,7 @@ export function HistoryProvider({ children }: { children: ReactNode }) {
       const entries = await window.api.addHistory(track)
       setHistory(entries)
     } catch (err) {
-      console.error('Failed to add to history:', err)
+      logger.error('Failed to add to history:', err)
     }
   }, [])
 
@@ -72,7 +73,7 @@ export function HistoryProvider({ children }: { children: ReactNode }) {
       const entries = await window.api.removeHistory(videoIds)
       setHistory(entries)
     } catch (err) {
-      console.error('Failed to remove from history:', err)
+      logger.error('Failed to remove from history:', err)
     }
   }, [])
 
@@ -81,7 +82,7 @@ export function HistoryProvider({ children }: { children: ReactNode }) {
       await window.api.clearHistory()
       setHistory([])
     } catch (err) {
-      console.error('Failed to clear history:', err)
+      logger.error('Failed to clear history:', err)
     }
   }, [])
 

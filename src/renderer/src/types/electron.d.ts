@@ -17,6 +17,9 @@ interface ElectronAPI {
 
   // Player
   getStreamUrl: (videoId: string) => Promise<string>
+  savePlayerState: (state: any) => Promise<{ success: boolean }>
+  loadPlayerState: () => Promise<any>
+  onTrayPlayerAction: (callback: (action: 'toggle-play' | 'next' | 'prev') => void) => () => void
 
   // Download
   downloadTrack: (track: any) => Promise<{ success: boolean; error?: string }>
@@ -62,8 +65,21 @@ interface ElectronAPI {
   isFavorited: (id: string, type: string) => Promise<boolean>
 
   // Settings
-  getSettings: () => Promise<{ groqApiKey: string; cookieBrowser: string; volume?: number }>
-  saveSettings: (settings: { groqApiKey?: string; cookieBrowser?: string; volume?: number }) => Promise<{ success: boolean }>
+  getSettings: () => Promise<{ groqApiKey: string; cookieBrowser: string; volume?: number; theme?: 'dark' | 'light' | 'system'; minimizeToTray?: boolean }>
+  saveSettings: (settings: { groqApiKey?: string; cookieBrowser?: string; volume?: number; theme?: 'dark' | 'light' | 'system'; minimizeToTray?: boolean }) => Promise<{ success: boolean }>
+
+  // Data Usage
+  getDataUsage: () => Promise<import('../../../shared/types').DataUsageStats>
+  recordDataUsage: (payload: { bytes: number; type?: 'stream' | 'cache' | 'download'; trackPlayed?: boolean }) => Promise<import('../../../shared/types').DataUsageStats>
+  resetDataUsage: () => Promise<import('../../../shared/types').DataUsageStats>
+
+  // Image Cache
+  getCachedImageUrl: (url: string) => Promise<string>
+  preCacheImages: (urls: string[]) => Promise<{ count: number }>
+
+  // Artist Cache
+  getCachedArtist: (artistId: string) => Promise<import('../../../shared/types').Artist | null>
+  forceSyncArtist: (artistId: string) => Promise<import('../../../shared/types').Artist | null>
 
   // Window Fullscreen controls
   setFullScreen: (flag: boolean) => Promise<boolean>

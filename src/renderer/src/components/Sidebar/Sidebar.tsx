@@ -6,7 +6,8 @@ import { cn } from '@/lib/utils'
 import { usePlayer } from '../../context/PlayerContext'
 import { useFavorites } from '../../context/FavoritesContext'
 import { bestThumbnailUrl } from '../../../../shared/utils'
-import logo from '../../assets/logo.png'
+import ThemeToggle from '../ThemeToggle/ThemeToggle'
+import CachedImage from '@/components/ui/CachedImage'
 
 interface SidebarProps {
   currentView: ViewType
@@ -36,19 +37,14 @@ export default function Sidebar({ currentView, currentViewData, onNavigate }: Si
       className="w-[220px] shrink-0 bg-secondary border-r border-border flex flex-col"
       style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
     >
-      <div className="px-4 pt-6 pb-6 select-none" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-        <div className="flex justify-center mb-4">
-          <img
-            src={logo}
-            alt="Hyro Logo"
-            className="size-16 object-contain rounded-xl shadow-lg border border-border/10 transition-transform hover:scale-105 duration-300"
-          />
-        </div>
-        <pre className="font-mono text-[5px] leading-[1.1] text-primary whitespace-pre overflow-hidden">
-          {ASCII_LOGO}
-        </pre>
-        <div className="text-center mt-2.5">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.25em] text-muted-foreground">Music</span>
+      <div className="px-3 pt-6 pb-4 select-none" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+        <div className="flex flex-col items-center justify-center">
+          <pre className="font-mono text-[5.5px] leading-[1.1] text-primary whitespace-pre overflow-hidden drop-shadow-[0_0_10px_rgba(29,185,84,0.3)]">
+            {ASCII_LOGO}
+          </pre>
+          <div className="text-center mt-2">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.25em] text-muted-foreground">Music</span>
+          </div>
         </div>
       </div>
       <nav className="flex flex-col gap-1 px-3 shrink-0" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
@@ -113,11 +109,12 @@ export default function Sidebar({ currentView, currentViewData, onNavigate }: Si
                   title={`${artistName}${trackCount > 0 ? ` (${trackCount} tracks)` : ''}`}
                 >
                   <div className="size-6 rounded-full overflow-hidden bg-muted shrink-0 flex items-center justify-center border border-border/40 shadow-sm">
-                    {artistImg ? (
-                      <img src={artistImg} alt={artistName} className="w-full h-full object-cover" />
-                    ) : (
-                      <User className="size-3 text-muted-foreground" />
-                    )}
+                    <CachedImage
+                      src={artistImg}
+                      alt={artistName}
+                      className="w-full h-full object-cover"
+                      fallbackIcon={<User className="size-3 text-muted-foreground" />}
+                    />
                   </div>
                   <span className="truncate text-xs flex-1 group-hover:text-foreground">
                     {artistName}
@@ -134,7 +131,8 @@ export default function Sidebar({ currentView, currentViewData, onNavigate }: Si
         </div>
       )}
 
-      <div className="px-3 pb-3 mt-auto pt-2 shrink-0" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+      <div className="px-3 pb-3 mt-auto pt-2 shrink-0 space-y-1" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+        <ThemeToggle variant="sidebar" align="start" side="top" />
         <Button
           variant="ghost"
           className={cn(

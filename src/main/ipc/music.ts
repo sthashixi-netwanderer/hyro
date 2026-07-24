@@ -4,6 +4,7 @@ import { promisify } from 'util'
 import YTMusic from 'ytmusic-api'
 import { getGroqApiKey, getCookieBrowser } from './settings'
 import { isVideoTitle } from '../../shared/video-keywords'
+import type { HomeSection } from '../../shared/types'
 import { readLocalLyrics } from './download'
 import { getInnertube, resetInnertube } from '../innertube/client'
 import {
@@ -17,6 +18,8 @@ import {
   parseDurationStr,
   extractThumbnails
 } from '../innertube/helpers'
+import { logger } from '../logger'
+import { getYtDlpBinaryPath } from './ytdlp-path'
 
 /**
  * Run an InnerTube operation with automatic retry on stale session errors.
@@ -33,7 +36,7 @@ async function withInnertubeRetry<T>(
     const yt = await getInnertube()
     return await fn(yt)
   } catch (err: any) {
-    console.warn(`[innertube] ${label} failed on first attempt, resetting and retrying:`, err?.message || err)
+    logger.warn(`[innertube] ${label} failed on first attempt, resetting and retrying:`, err?.message || err)
     resetInnertube()
     await new Promise(resolve => setTimeout(resolve, 300))
     // Retry with a fresh instance — the caller will fall back to ytmusic-api if this also fails
@@ -53,9 +56,9 @@ export async function initializeYTMusic(): Promise<void> {
   try {
     ytmusic = new YTMusic()
     await ytmusic.initialize()
-    console.log('[ytmusic-api] Initialized (fallback ready)')
+    logger.log('[ytmusic-api] Initialized (fallback ready)')
   } catch (err) {
-    console.warn('[ytmusic-api] Initialization failed (fallback unavailable):', err)
+    logger.warn('[ytmusic-api] Initialization failed (fallback unavailable):', err)
   }
 }
 
@@ -74,6 +77,61 @@ function fromBrowsePlaylistId(playlistId: string): string {
   return playlistId.startsWith('VL') ? playlistId.slice(2) : playlistId
 }
 
+/**
+ * Fetch artist data from YouTube (InnerTube primary, ytmusic-api fallback).
+ * Extracted as a reusable function for both the IPC handler and artist-cache.
+ */
+export async function fetchArtistData(artistId: string): Promise<any> {
+  // Primary: InnerTube with stale-session retry
+  try {
+    return await withInnertubeRetry('getArtist', async (yt) => {
+      const artistResponse = await yt.music.getArtist(artistId)
+      return mapArtistDetail(artistResponse, artistId, yt)
+    })
+  } catch (err) {
+    logger.warn('[getArtist] InnerTube failed (after retry), falling back to ytmusic-api:', err)
+  }
+
+  // Fallback: ytmusic-api
+  const api = getYTMusic()
+  const artist = await api.getArtist(artistId)
+  const headerArtist = { artistId: artist.artistId || artistId, name: artist.name || 'Unknown Artist' }
+  return {
+    artistId: artist.artistId,
+    name: artist.name,
+    thumbnails: artist.thumbnails,
+    type: 'ARTIST' as const,
+    subscribers: (artist as any).subscribers || null,
+    songs: artist.topSongs.map((s) => ({
+      videoId: s.videoId,
+      name: s.name,
+      artist: (!s.artist?.name || s.artist.name === 'Unknown') ? headerArtist : s.artist,
+      album: s.album || null,
+      duration: s.duration,
+      thumbnails: s.thumbnails,
+      type: 'SONG' as const
+    })),
+    albums: artist.topAlbums.map((a) => ({
+      albumId: a.albumId,
+      playlistId: a.playlistId,
+      name: a.name,
+      artist: (!a.artist?.name || a.artist.name === 'Unknown') ? headerArtist : a.artist,
+      year: a.year,
+      thumbnails: a.thumbnails,
+      type: 'ALBUM' as const
+    })),
+    singles: (artist.topSingles || []).map((a) => ({
+      albumId: a.albumId,
+      playlistId: a.playlistId,
+      name: a.name,
+      artist: (!a.artist?.name || a.artist.name === 'Unknown') ? headerArtist : a.artist,
+      year: a.year,
+      thumbnails: a.thumbnails,
+      type: 'ALBUM' as const
+    }))
+  }
+}
+
 export function registerMusicIPC(): void {
   ipcMain.handle('music:search', async (_event, query: string) => {
     // Primary: InnerTube (direct YouTube Music API) with stale-session retry
@@ -86,7 +144,7 @@ export function registerMusicIPC(): void {
       mapped.songs = mapped.songs.filter((t) => !isVideoTitle(t.name))
       return mapped
     } catch (err) {
-      console.warn('[search] InnerTube failed (after retry), falling back to ytmusic-api:', err)
+      logger.warn('[search] InnerTube failed (after retry), falling back to ytmusic-api:', err)
     }
 
     // Fallback: ytmusic-api
@@ -147,18 +205,52 @@ export function registerMusicIPC(): void {
     // Primary: InnerTube with stale-session retry
     try {
       const sections = await withInnertubeRetry('getHomeSections', async (yt) => {
-        const homeFeed = await yt.music.getHomeFeed()
-        return mapHomeFeed(homeFeed)
+        const [homeFeedRes, exploreRes] = await Promise.allSettled([
+          yt.music.getHomeFeed(),
+          yt.music.getExplore()
+        ])
+
+        const homeSections = homeFeedRes.status === 'fulfilled' ? mapHomeFeed(homeFeedRes.value) : []
+        const exploreSections = exploreRes.status === 'fulfilled' ? mapHomeFeed(exploreRes.value) : []
+
+        // Find "New albums & singles" or any new release shelf from explore
+        const newReleasesShelf = exploreSections.find((s) =>
+          /new album|new release|latest release|new music/i.test(s.title)
+        ) || (exploreSections.length > 0 ? exploreSections[0] : null)
+
+        const resultSections: HomeSection[] = []
+
+        if (newReleasesShelf && newReleasesShelf.contents.length > 0) {
+          resultSections.push({
+            title: newReleasesShelf.title || 'New Released Albums & Single Tracks',
+            contents: newReleasesShelf.contents
+          })
+        }
+
+        for (const sec of homeSections) {
+          if (!resultSections.some((s) => s.title.toLowerCase() === sec.title.toLowerCase())) {
+            resultSections.push(sec)
+          }
+        }
+
+        // Add any remaining explore sections (e.g. New music videos) if unique
+        for (const sec of exploreSections) {
+          if (sec !== newReleasesShelf && !resultSections.some((s) => s.title.toLowerCase() === sec.title.toLowerCase())) {
+            resultSections.push(sec)
+          }
+        }
+
+        return resultSections
       })
       // Filter out video-titled tracks
       return sections.map((section) => ({
         ...section,
         contents: section.contents.filter(
-          (item) => item.type !== 'SONG' || !isVideoTitle(item.name)
+          (item: any) => item.type !== 'SONG' || !isVideoTitle(item.name)
         )
       }))
     } catch (err) {
-      console.warn('[home] InnerTube failed (after retry), falling back to ytmusic-api:', err)
+      logger.warn('[home] InnerTube failed (after retry), falling back to ytmusic-api:', err)
     }
 
     // Fallback: ytmusic-api
@@ -230,7 +322,7 @@ export function registerMusicIPC(): void {
         }
       })
     } catch (err) {
-      console.warn('[getSong] InnerTube failed (after retry), falling back to ytmusic-api:', err)
+      logger.warn('[getSong] InnerTube failed (after retry), falling back to ytmusic-api:', err)
     }
 
     // Fallback: ytmusic-api
@@ -257,7 +349,7 @@ export function registerMusicIPC(): void {
         return mapAlbumDetail(albumResponse, albumId)
       })
     } catch (err) {
-      console.warn('[getAlbum] InnerTube failed (after retry), falling back to ytmusic-api:', err)
+      logger.warn('[getAlbum] InnerTube failed (after retry), falling back to ytmusic-api:', err)
     }
 
     // Fallback: ytmusic-api
@@ -281,7 +373,7 @@ export function registerMusicIPC(): void {
           }))
         }
       } catch {
-        console.warn(`getPlaylistVideos failed for album ${albumId}, using getAlbum tracks`)
+        logger.warn(`getPlaylistVideos failed for album ${albumId}, using getAlbum tracks`)
       }
     }
 
@@ -317,9 +409,9 @@ export function registerMusicIPC(): void {
       if (res && res.videos && res.videos.length > 0) {
         return res
       }
-      console.warn(`[getPlaylist] InnerTube returned 0 videos for ${playlistId}, trying ytmusic-api fallback...`)
+      logger.warn(`[getPlaylist] InnerTube returned 0 videos for ${playlistId}, trying ytmusic-api fallback...`)
     } catch (err) {
-      console.warn('[getPlaylist] InnerTube failed (after retry), falling back to ytmusic-api:', err)
+      logger.warn('[getPlaylist] InnerTube failed (after retry), falling back to ytmusic-api:', err)
     }
 
     // Fallback: ytmusic-api
@@ -345,7 +437,7 @@ export function registerMusicIPC(): void {
         }))
       }
     } catch (err) {
-      console.error('[getPlaylist] Both InnerTube and ytmusic-api failed:', err)
+      logger.error('[getPlaylist] Both InnerTube and ytmusic-api failed:', err)
       return {
         playlistId,
         name: 'Playlist',
@@ -358,54 +450,7 @@ export function registerMusicIPC(): void {
   })
 
   ipcMain.handle('music:getArtist', async (_event, artistId: string) => {
-    // Primary: InnerTube with stale-session retry
-    try {
-      return await withInnertubeRetry('getArtist', async (yt) => {
-        const artistResponse = await yt.music.getArtist(artistId)
-        return mapArtistDetail(artistResponse, artistId, yt)
-      })
-    } catch (err) {
-      console.warn('[getArtist] InnerTube failed (after retry), falling back to ytmusic-api:', err)
-    }
-
-    // Fallback: ytmusic-api
-    const api = getYTMusic()
-    const artist = await api.getArtist(artistId)
-    const headerArtist = { artistId: artist.artistId || artistId, name: artist.name || 'Unknown Artist' }
-    return {
-      artistId: artist.artistId,
-      name: artist.name,
-      thumbnails: artist.thumbnails,
-      type: 'ARTIST' as const,
-      subscribers: (artist as any).subscribers || null,
-      songs: artist.topSongs.map((s) => ({
-        videoId: s.videoId,
-        name: s.name,
-        artist: (!s.artist?.name || s.artist.name === 'Unknown') ? headerArtist : s.artist,
-        album: s.album || null,
-        duration: s.duration,
-        thumbnails: s.thumbnails,
-        type: 'SONG' as const
-      })),
-      albums: artist.topAlbums.map((a) => ({
-        albumId: a.albumId,
-        playlistId: a.playlistId,
-        name: a.name,
-        artist: (!a.artist?.name || a.artist.name === 'Unknown') ? headerArtist : a.artist,
-        year: a.year,
-        thumbnails: a.thumbnails,
-        type: 'ALBUM' as const
-      })),
-      singles: (artist.topSingles || []).map((a) => ({
-        albumId: a.albumId,
-        playlistId: a.playlistId,
-        name: a.name,
-        artist: (!a.artist?.name || a.artist.name === 'Unknown') ? headerArtist : a.artist,
-        year: a.year,
-        thumbnails: a.thumbnails,
-        type: 'ALBUM' as const
-      }))
-    }
+    return fetchArtistData(artistId)
   })
 
   ipcMain.handle('music:getUpNexts', async (_event, videoId: string) => {
@@ -416,7 +461,7 @@ export function registerMusicIPC(): void {
         const seenIds = new Set<string>()
 
         try {
-          const playlistPanel = await yt.music.getUpNext(videoId)
+          const playlistPanel = await yt.music.getUpNext(videoId, true)
           const panelTracks = mapUpNextTracks(playlistPanel)
           for (const t of panelTracks) {
             if (t.videoId && !seenIds.has(t.videoId)) {
@@ -425,7 +470,7 @@ export function registerMusicIPC(): void {
             }
           }
         } catch (err) {
-          console.warn('[getUpNexts] yt.music.getUpNext failed:', err)
+          logger.warn('[getUpNexts] yt.music.getUpNext failed:', err)
         }
 
         // Also fetch related / same genre recommendations ("You might also like", "Similar artists", etc.)
@@ -453,14 +498,14 @@ export function registerMusicIPC(): void {
             }
           }
         } catch (err) {
-          console.warn('[getUpNexts] yt.music.getRelated failed:', err)
+          logger.warn('[getUpNexts] yt.music.getRelated failed:', err)
         }
 
         return upNextTracks
       })
       if (tracks && tracks.length > 0) return tracks
     } catch (err) {
-      console.warn('[getUpNexts] InnerTube failed (after retry), falling back to ytmusic-api:', err)
+      logger.warn('[getUpNexts] InnerTube failed (after retry), falling back to ytmusic-api:', err)
     }
 
     // Fallback: ytmusic-api
@@ -582,7 +627,7 @@ export function registerMusicIPC(): void {
       })
       if (results.length > 0) return results
     } catch (err) {
-      console.warn('[getSearchSuggestions] InnerTube failed (after retry), falling back to ytmusic-api:', err)
+      logger.warn('[getSearchSuggestions] InnerTube failed (after retry), falling back to ytmusic-api:', err)
     }
 
     // Fallback: ytmusic-api
@@ -650,11 +695,11 @@ export function registerMusicIPC(): void {
 
       // Rate limited or server error — fall through to regex
       if (res.status === 429) {
-        console.warn('Groq API rate limited, using regex fallback for title cleaning')
+        logger.warn('Groq API rate limited, using regex fallback for title cleaning')
         return { trackName: cleanTitleRegex(trackName), artistName: cleanTitleRegex(artistName) }
       }
       if (!res.ok) {
-        console.warn(`Groq API error ${res.status}, using regex fallback for title cleaning`)
+        logger.warn(`Groq API error ${res.status}, using regex fallback for title cleaning`)
         return { trackName: cleanTitleRegex(trackName), artistName: cleanTitleRegex(artistName) }
       }
 
@@ -670,7 +715,7 @@ export function registerMusicIPC(): void {
         }
       }
     } catch (err) {
-      console.warn('Groq title cleaning failed, using regex fallback:', err)
+      logger.warn('Groq title cleaning failed, using regex fallback:', err)
     }
 
     // Fallback to regex cleaning
@@ -737,6 +782,34 @@ export function registerMusicIPC(): void {
     return lines.sort((a, b) => a.time - b.time)
   }
 
+  /**
+   * Intelligent Time-Sync Engine inspired by better-lyrics.
+   * Converts plain text lyric lines into time-synced lyric cues.
+   * Distributes time based on track duration, lead-in delay, and line character length.
+   */
+  function autoSyncPlainLyrics(lines: string[], durationSeconds: number): { time: number; text: string }[] {
+    const nonNavLines = lines.filter(l => l.trim() !== '')
+    if (nonNavLines.length === 0) return []
+
+    const totalDuration = durationSeconds > 0 ? durationSeconds : nonNavLines.length * 4
+    const leadIn = Math.min(4, Math.max(1.5, totalDuration * 0.03))
+    const availableTime = Math.max(5, totalDuration - leadIn - Math.min(5, totalDuration * 0.04))
+
+    const totalWeight = nonNavLines.reduce((sum, line) => sum + Math.max(4, line.trim().length), 0)
+
+    let currentTime = leadIn
+    return nonNavLines.map((text) => {
+      const lineTime = currentTime
+      const weight = Math.max(4, text.trim().length)
+      const lineDuration = (weight / totalWeight) * availableTime
+      currentTime += lineDuration
+      return {
+        time: Math.round(lineTime * 100) / 100,
+        text: text.trim()
+      }
+    })
+  }
+
   ipcMain.handle('music:getLyrics', async (
     _event,
     videoId: string,
@@ -749,11 +822,15 @@ export function registerMusicIPC(): void {
     // Check for locally saved lyrics first (for downloaded tracks)
     if (filePath) {
       const localLyrics = readLocalLyrics(filePath)
-      if (localLyrics) return localLyrics
+      if (localLyrics) {
+        if (localLyrics.synced && localLyrics.synced.length > 0) return localLyrics
+        if (localLyrics.plain && localLyrics.plain.length > 0) {
+          const autoSynced = autoSyncPlainLyrics(localLyrics.plain, duration || 0)
+          return { ...localLyrics, synced: autoSynced }
+        }
+      }
     }
 
-    // Clean the track/artist names for better lyrics database matches.
-    // YouTube titles often include "(Official Video)", "4K", etc. that break lookups.
     const cleaned = await cleanTitleForLyrics(trackName, artistName, albumName, duration)
     const trackDuration = duration || 0
 
@@ -768,35 +845,22 @@ export function registerMusicIPC(): void {
       syncedLyrics: string | null
     }
 
-    /** Score an LRCLIB result for best match against our track metadata. */
     function scoreResult(r: LRCLIBResult): number {
       let score = 0
-
-      // Synced lyrics are strongly preferred — they enable the karaoke-style display.
       if (r.syncedLyrics) score += 100
-
-      // Duration proximity: closer match scores higher. A 10-second gap is common
-      // between radio/edit and album versions, so use a generous scale.
       if (trackDuration > 0 && r.duration > 0) {
         const diff = Math.abs(r.duration - trackDuration)
-        if (diff <= 3) score += 50        // near-exact match
-        else if (diff <= 10) score += 35   // minor difference (radio vs album edit)
-        else if (diff <= 30) score += 15   // noticeable but plausible
-        // > 30s apart: no duration bonus — likely a live or remixed version
+        if (diff <= 3) score += 50
+        else if (diff <= 10) score += 35
+        else if (diff <= 30) score += 15
       }
-
-      // Album name match is a soft signal — many LRCLIB entries use "-" or blank.
       if (albumName && r.albumName && r.albumName !== '-' && r.albumName.toLowerCase() === albumName.toLowerCase()) {
         score += 10
       }
-
       return score
     }
 
     // ── Source 1: Musixmatch (via musixmlrc) ──────────────────────────────
-    // Musixmatch has the largest synced lyrics database. Try it first.
-    // Only return immediately on synced; store plain as a fallback so LRCLIB
-    // still gets a chance to provide synced lyrics.
     let musixmatchPlain: string[] | null = null
 
     try {
@@ -805,12 +869,11 @@ export function registerMusicIPC(): void {
 
       const song = new Song(cleaned.artistName, cleaned.trackName, albumName || '', '')
       if (trackDuration > 0) {
-        song.duration = trackDuration * 1000 // musixmlrc expects milliseconds
+        song.duration = trackDuration * 1000
       }
 
       const mxm = new Musixmatch(musixmatchToken ?? undefined)
       const body = await mxm.findLyrics(song)
-      // Cache the token for subsequent requests to avoid re-fetching
       const currentToken = (mxm as any).token
       if (currentToken && currentToken !== musixmatchToken) {
         musixmatchToken = currentToken
@@ -818,7 +881,6 @@ export function registerMusicIPC(): void {
       if (body) {
         song.updateInfo(body)
 
-        // Try synced lyrics first (subtitles with timestamps)
         if (Musixmatch.getSynced(song, body) && song.subtitles && song.subtitles.length > 0) {
           const synced = song.subtitles
             .filter(line => line.text.trim() !== '')
@@ -827,11 +889,10 @@ export function registerMusicIPC(): void {
               text: line.text
             }))
           if (synced.length > 0) {
-            return { plain: [], synced, provider: 'Musixmatch' }
+            return { plain: synced.map(s => s.text), synced, provider: 'Musixmatch' }
           }
         }
 
-        // Store unsynced as fallback — don't return yet, let LRCLIB try for synced
         if (Musixmatch.getUnsynced(song, body) && song.lyrics && song.lyrics.length > 0) {
           const plain = song.lyrics.map(l => l.text).filter(t => t.trim() !== '')
           if (plain.length > 0) {
@@ -840,12 +901,10 @@ export function registerMusicIPC(): void {
         }
       }
     } catch (err) {
-      console.warn('[lyrics] Musixmatch lookup failed, trying LRCLIB:', err instanceof Error ? err.message : 'unknown error')
+      logger.warn('[lyrics] Musixmatch lookup failed, trying LRCLIB:', err instanceof Error ? err.message : 'unknown error')
     }
 
     // ── Source 2: LRCLIB ─────────────────────────────────────────────────
-    // Use /api/search (returns multiple candidates) so we can pick the best match
-    // based on duration proximity and synced-lyric availability.
     let bestLRCLIB: { plain: string[]; synced: { time: number; text: string }[] } | null = null
     let bestScore = -1
 
@@ -854,7 +913,6 @@ export function registerMusicIPC(): void {
         track_name: cleaned.trackName,
         artist_name: cleaned.artistName
       })
-      // Only include album if it has a real value (not empty / placeholder "-")
       if (albumName && albumName !== '-') {
         params.set('album_name', albumName)
       }
@@ -877,26 +935,62 @@ export function registerMusicIPC(): void {
         }
       }
     } catch {
-      // LRCLIB is unavailable — fall through to YouTube Music fallback.
+      // LRCLIB is unavailable
     }
 
-    // If the best LRCLIB result has synced lyrics, return it immediately.
     if (bestLRCLIB && bestLRCLIB.synced.length > 0) {
       return { ...bestLRCLIB, provider: 'LRCLIB' }
     }
 
-    // LRCLIB plain lyrics — prefer over Musixmatch plain since LRCLIB has better metadata.
-    if (bestLRCLIB && bestLRCLIB.plain.length > 0) {
-      return { ...bestLRCLIB, provider: 'LRCLIB' }
+    // ── Source 3: YouTube Captions (via InnerTube timed transcript) ─────
+    try {
+      const ytCaptions = await withInnertubeRetry('getCaptions', async (yt) => {
+        try {
+          const info = await yt.getInfo(videoId)
+          const captions = info?.captions
+          if (captions && captions.caption_tracks && captions.caption_tracks.length > 0) {
+            const track = captions.caption_tracks.find((t: any) => !t.is_auto_generated) || captions.caption_tracks[0]
+            if (track && track.base_url) {
+              const url = new URL(track.base_url)
+              url.searchParams.set('fmt', 'json3')
+              const res = await fetch(url.toString())
+              if (res.ok) {
+                const json = (await res.json()) as any
+                if (json && json.events && Array.isArray(json.events)) {
+                  const synced: { time: number; text: string }[] = []
+                  for (const event of json.events) {
+                    if (event.segs && event.tStartMs != null) {
+                      let lineText = event.segs.map((s: any) => s.utf8 || '').join('').replace(/\n/g, ' ').trim()
+                      lineText = lineText.replace(/^[♪♫\s]+|[♪♫\s]+$/g, '').trim()
+                      if (lineText) {
+                        synced.push({
+                          time: Math.round((event.tStartMs / 1000) * 100) / 100,
+                          text: lineText
+                        })
+                      }
+                    }
+                  }
+                  if (synced.length > 0) {
+                    return synced.sort((a, b) => a.time - b.time)
+                  }
+                }
+              }
+            }
+          }
+        } catch {
+          // Captions lookup fallback
+        }
+        return null
+      })
+
+      if (ytCaptions && ytCaptions.length > 0) {
+        return { plain: ytCaptions.map(c => c.text), synced: ytCaptions, provider: 'YouTube Captions' }
+      }
+    } catch {
+      // YouTube Captions unavailable
     }
 
-    // Musixmatch plain lyrics stored earlier.
-    if (musixmatchPlain && musixmatchPlain.length > 0) {
-      return { plain: musixmatchPlain, synced: [], provider: 'Musixmatch' }
-    }
-
-    // ── Source 3: YouTube Music (plain lyrics only) ──────────────────────
-    // Try InnerTube first (with retry), then fall back to ytmusic-api
+    // ── Source 4: YouTube Music Plain Lyrics + Intelligent Auto-Sync ────
     try {
       const lyricsResponse = await withInnertubeRetry('getLyrics', async (yt) => {
         return await yt.music.getLyrics(videoId)
@@ -906,19 +1000,32 @@ export function registerMusicIPC(): void {
           .split('\n')
           .filter((l: string) => l.trim() !== '')
         if (plain.length > 0) {
-          return { plain, synced: [], provider: 'YouTube Music' }
+          const synced = autoSyncPlainLyrics(plain, trackDuration)
+          return { plain, synced, provider: 'YouTube Music (Synced)' }
         }
       }
     } catch {
-      // InnerTube lyrics unavailable, try ytmusic-api fallback
       try {
         const ytmLyrics = await getYTMusic().getLyrics(videoId)
         if (ytmLyrics && ytmLyrics.length > 0) {
-          return { plain: ytmLyrics, synced: [], provider: 'YouTube Music' }
+          const synced = autoSyncPlainLyrics(ytmLyrics, trackDuration)
+          return { plain: ytmLyrics, synced, provider: 'YouTube Music (Synced)' }
         }
       } catch {
-        // YouTube Music has no lyrics for this track.
+        // Fallback
       }
+    }
+
+    // LRCLIB plain lyrics -> Auto-Synced
+    if (bestLRCLIB && bestLRCLIB.plain.length > 0) {
+      const synced = autoSyncPlainLyrics(bestLRCLIB.plain, trackDuration)
+      return { plain: bestLRCLIB.plain, synced, provider: 'LRCLIB (Synced)' }
+    }
+
+    // Musixmatch plain lyrics -> Auto-Synced
+    if (musixmatchPlain && musixmatchPlain.length > 0) {
+      const synced = autoSyncPlainLyrics(musixmatchPlain, trackDuration)
+      return { plain: musixmatchPlain, synced, provider: 'Musixmatch (Synced)' }
     }
 
     return null
@@ -956,11 +1063,11 @@ export function registerMusicIPC(): void {
         return null
       })
       if (url) {
-        console.log(`[stream] Resolved stream URL via InnerTube for ${videoId} ✓`)
+        logger.log(`[stream] Resolved stream URL via InnerTube for ${videoId}`)
         return url
       }
     } catch (err) {
-      console.warn(`[stream] InnerTube player failed for ${videoId} (after retry), falling back to yt-dlp:`, err)
+      logger.warn(`[stream] InnerTube player failed for ${videoId} (after retry), falling back to yt-dlp:`, err)
     }
 
     // Fallback: yt-dlp CLI
@@ -974,27 +1081,27 @@ export function registerMusicIPC(): void {
       args.push('--cookies-from-browser', cookieBrowser)
     }
 
-    const cmdStr = `yt-dlp ${args.map(a => `"${a}"`).join(' ')}`
-    console.log(`[stream] Resolving stream URL via yt-dlp for ${videoId}...`)
-    console.log(`[stream] Command: ${cmdStr}`)
+    const cmdStr = `${getYtDlpBinaryPath()} ${args.map(a => `"${a}"`).join(' ')}`
+    logger.log(`[stream] Resolving stream URL via yt-dlp for ${videoId}...`)
+    logger.log(`[stream] Command: ${cmdStr}`)
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
-        const { stdout } = await execFileAsync('yt-dlp', args, { timeout: 30000 })
+        const { stdout } = await execFileAsync(getYtDlpBinaryPath(), args, { timeout: 30000 })
         const streamUrl = stdout.trim()
         if (!streamUrl) throw new Error('Empty stream URL from yt-dlp')
         if (!streamUrl.startsWith('http://') && !streamUrl.startsWith('https://')) {
           throw new Error(`Invalid stream URL format: ${streamUrl.slice(0, 100)}`)
         }
-        console.log(`[stream] Resolved stream URL via yt-dlp for ${videoId} ✓`)
+        logger.log(`[stream] Resolved stream URL via yt-dlp for ${videoId}`)
         return streamUrl
       } catch (err: any) {
         const isLastAttempt = attempt === MAX_RETRIES
         if (isLastAttempt) {
-          console.error(`[stream] FAILED for ${videoId} after ${attempt + 1} attempt(s): ${err.message}`)
+          logger.error(`[stream] FAILED for ${videoId} after ${attempt + 1} attempt(s): ${err.message}`)
           throw new Error(`Failed to get stream URL: ${err.message}`)
         }
-        console.warn(`[stream] Attempt ${attempt + 1} failed for ${videoId}, retrying in ${RETRY_DELAY_MS}ms: ${err.message}`)
+        logger.warn(`[stream] Attempt ${attempt + 1} failed for ${videoId}, retrying in ${RETRY_DELAY_MS}ms: ${err.message}`)
         await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS))
       }
     }

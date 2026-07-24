@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger'
 import { useEffect, useState } from 'react'
 import type { Playlist, Track } from '../../../../shared/types'
 import { bestThumbnailUrl } from '../../../../shared/utils'
@@ -9,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import FavoriteButton from '@/components/ui/FavoriteButton'
+import CachedImage from '@/components/ui/CachedImage'
 import { ArrowLeft, Play, Download, Check, ListMusic } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -35,9 +37,22 @@ export default function PlaylistDetail({ playlistId, onBack }: PlaylistDetailPro
       setError(null)
       const data = await window.api.getPlaylist(playlistId)
       setPlaylist(data)
+
+      if (data) {
+        const urls: string[] = []
+        const heroUrl = bestThumbnailUrl(data.thumbnails)
+        if (heroUrl) urls.push(heroUrl)
+        if (data.songs) {
+          for (const s of data.songs) {
+            const url = bestThumbnailUrl(s.thumbnails)
+            if (url) urls.push(url)
+          }
+        }
+        if (urls.length > 0) window.api.preCacheImages(urls).catch(() => {})
+      }
     } catch (err) {
       setError('Failed to load playlist.')
-      console.error(err)
+      logger.error(err)
     } finally {
       setLoading(false)
     }
@@ -94,101 +109,108 @@ export default function PlaylistDetail({ playlistId, onBack }: PlaylistDetailPro
   const allTracksDownloaded = allDownloaded(videos)
 
   return (
-    <div className="p-8">
-      <Button variant="ghost" size="sm" className="mb-6" onClick={onBack}>
-        <ArrowLeft className="size-4" />
-        Back
-      </Button>
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* Fixed Header */}
+      <div className="shrink-0 px-8 pt-6 pb-4 bg-background/95 backdrop-blur-md z-20 border-b border-border/10">
+        <Button variant="ghost" size="sm" className="mb-4" onClick={onBack}>
+          <ArrowLeft className="size-4" />
+          Back
+        </Button>
 
-      <div className="flex gap-6 items-end mb-8">
-        <div className="w-[200px] h-[200px] rounded-lg overflow-hidden bg-muted shrink-0 shadow-lg flex items-center justify-center">
-          {bestThumbnailUrl(playlist.thumbnails) ? (
-            <img src={bestThumbnailUrl(playlist.thumbnails)} alt={playlist.name} className="w-full h-full object-cover" />
-          ) : (
-            <ListMusic className="size-12 text-muted-foreground" />
-          )}
-        </div>
-        <div className="min-w-0">
-          <Badge variant="secondary" className="mb-2">Playlist</Badge>
-          <div className="flex items-center gap-3 mb-1">
-            <h1 className="text-3xl font-bold truncate">{playlist.name}</h1>
-            <FavoriteButton
-              id={playlist.playlistId}
-              type="playlist"
-              data={playlist}
-              size="md"
-              className="shrink-0"
+        <div className="flex gap-6 items-end mb-4">
+          <div className="w-[140px] h-[140px] rounded-lg overflow-hidden bg-muted shrink-0 shadow-lg flex items-center justify-center">
+            <CachedImage
+              src={bestThumbnailUrl(playlist.thumbnails)}
+              alt={playlist.name}
+              className="w-full h-full object-cover"
+              fallbackIcon={<ListMusic className="size-12 text-muted-foreground" />}
             />
           </div>
-          <p
-            className={cn(
-              'text-muted-foreground mb-1',
-              playlist.artist?.artistId && 'hover:underline cursor-pointer'
-            )}
-            onDoubleClick={() => {
-              if (playlist.artist?.artistId) navigateTo('artist', playlist.artist.artistId)
-            }}
-          >
-            {playlist.artist?.name || ''}
-          </p>
-          <p className="text-sm text-muted-foreground">
-            {videos.length > 0 && <span>{videos.length} songs</span>}
-          </p>
+          <div className="min-w-0">
+            <Badge variant="secondary" className="mb-2">Playlist</Badge>
+            <div className="flex items-center gap-3 mb-1">
+              <h1 className="text-2xl font-bold truncate">{playlist.name}</h1>
+              <FavoriteButton
+                id={playlist.playlistId}
+                type="playlist"
+                data={playlist}
+                size="md"
+                className="shrink-0"
+              />
+            </div>
+            <p
+              className={cn(
+                'text-muted-foreground mb-1',
+                playlist.artist?.artistId && 'hover:underline cursor-pointer'
+              )}
+              onDoubleClick={() => {
+                if (playlist.artist?.artistId) navigateTo('artist', playlist.artist.artistId)
+              }}
+            >
+              {playlist.artist?.name || ''}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {videos.length > 0 && <span>{videos.length} songs</span>}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex gap-3">
+          {videos.length > 0 && (
+            <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={handlePlayAll}>
+              <Play className="size-4 fill-current" />
+              Play All
+            </Button>
+          )}
+          {videos.length > 0 && !allTracksDownloaded && (
+            <Button
+              variant="secondary"
+              className={cn(isDone && 'text-primary', playlistDownloading && 'gap-2')}
+              onClick={handleDownloadAll}
+              disabled={playlistDownloading}
+            >
+              {playlistDownloading ? (
+                <>
+                  <div className="relative shrink-0">
+                    <svg className="size-5 -rotate-90" viewBox="0 0 32 32">
+                      <circle cx="16" cy="16" r="14" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-white/10" />
+                      <circle
+                        cx="16" cy="16" r="14" fill="none" stroke="currentColor" strokeWidth="2.5"
+                        className="text-primary transition-all duration-300"
+                        strokeDasharray={`${2 * Math.PI * 14}`}
+                        strokeDashoffset={`${2 * Math.PI * 14 * (1 - (playlistProgress?.progress || 0) / 100)}`}
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                    <span className="absolute inset-0 flex items-center justify-center text-[8px] font-semibold tabular-nums text-primary">
+                      {Math.round(playlistProgress?.progress || 0)}
+                    </span>
+                  </div>
+                  Downloading
+                </>
+              ) : (
+                <><Download className="size-4" /> Download All</>
+              )}
+            </Button>
+          )}
+          {allTracksDownloaded && (
+            <Button variant="secondary" className="text-primary" disabled>
+              <Check className="size-4" /> Downloaded
+            </Button>
+          )}
         </div>
       </div>
 
-      <div className="flex gap-3 mb-8">
-        {videos.length > 0 && (
-          <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={handlePlayAll}>
-            <Play className="size-4 fill-current" />
-            Play All
-          </Button>
-        )}
-        {videos.length > 0 && !allTracksDownloaded && (
-          <Button
-            variant="secondary"
-            className={cn(isDone && 'text-primary', playlistDownloading && 'gap-2')}
-            onClick={handleDownloadAll}
-            disabled={playlistDownloading}
-          >
-            {playlistDownloading ? (
-              <>
-                <div className="relative shrink-0">
-                  <svg className="size-5 -rotate-90" viewBox="0 0 32 32">
-                    <circle cx="16" cy="16" r="14" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-white/10" />
-                    <circle
-                      cx="16" cy="16" r="14" fill="none" stroke="currentColor" strokeWidth="2.5"
-                      className="text-primary transition-all duration-300"
-                      strokeDasharray={`${2 * Math.PI * 14}`}
-                      strokeDashoffset={`${2 * Math.PI * 14 * (1 - (playlistProgress?.progress || 0) / 100)}`}
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                  <span className="absolute inset-0 flex items-center justify-center text-[8px] font-semibold tabular-nums text-primary">
-                    {Math.round(playlistProgress?.progress || 0)}
-                  </span>
-                </div>
-                Downloading
-              </>
-            ) : (
-              <><Download className="size-4" /> Download All</>
-            )}
-          </Button>
-        )}
-        {allTracksDownloaded && (
-          <Button variant="secondary" className="text-primary" disabled>
-            <Check className="size-4" /> Downloaded
-          </Button>
+      {/* Scrollable Content */}
+      <div className="flex-1 overflow-y-auto px-8 py-6">
+        {videos.length > 0 ? (
+          <TrackList tracks={videos} />
+        ) : (
+          <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+            <p>No songs in this playlist.</p>
+          </div>
         )}
       </div>
-
-      {videos.length > 0 ? (
-        <TrackList tracks={videos} />
-      ) : (
-        <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
-          <p>No songs in this playlist.</p>
-        </div>
-      )}
     </div>
   )
 }

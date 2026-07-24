@@ -763,6 +763,12 @@ export function mapTwoRowToAlbum(item: any, fallbackArtist?: ArtistBasic): Album
   const thumbnails = extractThumbnails(item)
   const year = item.year ? parseInt(item.year, 10) || null : null
 
+  let releaseType: string | undefined = undefined
+  const subtitleStr = safeText(item.subtitle, '')
+  if (/single/i.test(subtitleStr)) releaseType = 'Single'
+  else if (/ep/i.test(subtitleStr)) releaseType = 'EP'
+  else if (/album/i.test(subtitleStr)) releaseType = 'Album'
+
   return {
     albumId: item.id,
     playlistId: item.id,
@@ -771,7 +777,8 @@ export function mapTwoRowToAlbum(item: any, fallbackArtist?: ArtistBasic): Album
     artists,
     year,
     thumbnails,
-    type: 'ALBUM'
+    type: 'ALBUM',
+    releaseType
   }
 }
 

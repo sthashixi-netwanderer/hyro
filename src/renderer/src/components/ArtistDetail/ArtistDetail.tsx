@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger'
 import { useEffect, useState } from 'react'
 import type { Artist, Track, Album } from '../../../../shared/types'
 import { bestThumbnailUrl } from '../../../../shared/utils'
@@ -11,6 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { ArrowLeft, Play, Pause, Search, User, Disc3, Plus, Check, X, Music, Loader2 } from 'lucide-react'
+import CachedImage from '@/components/ui/CachedImage'
 import { cn } from '@/lib/utils'
 
 interface ArtistDetailProps {
@@ -55,9 +57,46 @@ export default function ArtistDetail({ artistId, onBack }: ArtistDetailProps) {
   const allMasterTracks = Array.from(masterTracksMap.values())
   const totalTrackCount = Math.max(allMasterTracks.length, songs.length)
 
-  // HOOK 1: Fetch artist when artistId changes
+  // HOOK 1: Fetch artist — cache-first, then background sync
   useEffect(() => {
-    loadArtist()
+    let isMounted = true
+
+    async function load() {
+      try {
+        setError(null)
+
+        // 1. Try cache first — instant load, no spinner
+        const cached = await window.api.getCachedArtist(artistId)
+        if (cached && isMounted) {
+          setArtist(cached)
+          setLoading(false)
+        } else if (!cached) {
+          // No cache yet — show loading skeleton
+          setLoading(true)
+        }
+
+        // 2. Always sync fresh data in background
+        const fresh = await window.api.forceSyncArtist(artistId)
+        if (fresh && isMounted) {
+          setArtist(fresh)
+        }
+      } catch (err) {
+        if (isMounted) {
+          // Only show error if we have no data at all
+          setArtist(prev => {
+            if (!prev) setError('Failed to load artist.')
+            return prev
+          })
+          logger.error(err)
+        }
+      } finally {
+        if (isMounted) setLoading(false)
+      }
+    }
+
+    load()
+
+    return () => { isMounted = false }
   }, [artistId])
 
   // HOOK 2: Pre-fetch tracks from all albums & singles for exhaustive search & playback
@@ -93,7 +132,7 @@ export default function ArtistDetail({ artistId, onBack }: ArtistDetailProps) {
 
         setAllAlbumTracks(collected)
       } catch (err) {
-        console.warn('[ArtistDetail] Failed to fetch all album tracks for artist search:', err)
+        logger.warn('[ArtistDetail] Failed to fetch all album tracks for artist search:', err)
       } finally {
         if (isMounted) setFetchingAlbumTracks(false)
       }
@@ -116,20 +155,6 @@ export default function ArtistDetail({ artistId, onBack }: ArtistDetailProps) {
       })
     }
   }, [totalTrackCount, isFollowing, artist])
-
-  async function loadArtist() {
-    try {
-      setLoading(true)
-      setError(null)
-      const data = await window.api.getArtist(artistId)
-      setArtist(data)
-    } catch (err) {
-      setError('Failed to load artist.')
-      console.error(err)
-    } finally {
-      setLoading(false)
-    }
-  }
 
   async function playWithAllArtistTracks(initialTrack: Track, baseTracks: Track[]) {
     const allKnownTracks: Track[] = [...baseTracks]
@@ -169,7 +194,7 @@ export default function ArtistDetail({ artistId, onBack }: ArtistDetailProps) {
             }
           }
         } catch (err) {
-          console.warn(`[ArtistDetail] Failed to fetch container ${container.albumId} for exhaustive queue:`, err)
+          logger.warn(`[ArtistDetail] Failed to fetch container ${container.albumId} for exhaustive queue:`, err)
         }
       }
     }
@@ -192,7 +217,7 @@ export default function ArtistDetail({ artistId, onBack }: ArtistDetailProps) {
         playWithAllArtistTracks(albumData.songs[0], albumData.songs)
       }
     } catch (err) {
-      console.error('Failed to load album for playback:', err)
+      logger.error('Failed to load album for playback:', err)
     }
   }
 
@@ -268,159 +293,164 @@ export default function ArtistDetail({ artistId, onBack }: ArtistDetailProps) {
   })
 
   return (
-    <div className="p-8">
-      <Button variant="ghost" size="sm" className="mb-6" onClick={onBack}>
-        <ArrowLeft className="size-4" />
-        Back
-      </Button>
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* Fixed Header */}
+      <div className="shrink-0 px-8 pt-6 pb-4 bg-background/95 backdrop-blur-md z-20 border-b border-border/10">
+        <Button variant="ghost" size="sm" className="mb-4" onClick={onBack}>
+          <ArrowLeft className="size-4" />
+          Back
+        </Button>
 
-      <div className="flex gap-6 items-end mb-8">
-        <div className="w-[200px] h-[200px] rounded-full overflow-hidden bg-muted shrink-0 shadow-lg flex items-center justify-center">
-          {bestThumbnailUrl(artist.thumbnails) ? (
-            <img src={bestThumbnailUrl(artist.thumbnails)} alt={artist.name} className="w-full h-full object-cover" />
-          ) : (
-            <User className="size-12 text-muted-foreground" />
-          )}
-        </div>
-        <div className="min-w-0">
-          <Badge variant="secondary" className="mb-2">Artist</Badge>
-          <div className="flex items-center gap-3 mb-1">
-            <h1 className="text-3xl font-bold truncate">{artist.name}</h1>
-            <Button
-              variant={isFollowing ? 'secondary' : 'outline'}
-              size="icon"
-              className={cn(
-                'size-8 rounded-full border-primary/40 hover:border-primary shrink-0 transition-colors',
-                isFollowing && 'bg-primary/20 text-primary border-primary'
-              )}
-              onClick={() =>
-                toggleFavorite(artist.artistId, 'artist', {
-                  ...artist,
-                  totalTracks: totalTrackCount,
-                  songs: allMasterTracks
-                })
-              }
-              title={isFollowing ? 'Remove from sidebar' : 'Add to sidebar'}
-            >
-              {isFollowing ? <Check className="size-4 text-primary" /> : <Plus className="size-4 text-primary" />}
-            </Button>
+        <div className="flex gap-6 items-end mb-4">
+          <div className="w-[120px] h-[120px] rounded-full overflow-hidden bg-muted shrink-0 shadow-lg flex items-center justify-center">
+            <CachedImage
+              src={bestThumbnailUrl(artist.thumbnails)}
+              alt={artist.name}
+              className="w-full h-full object-cover"
+              fallbackIcon={<User className="size-12 text-muted-foreground" />}
+            />
           </div>
-          {artist.subscribers && (
-            <p className="text-sm text-muted-foreground mb-1">{artist.subscribers}</p>
-          )}
-          <p className="text-sm text-muted-foreground">
-            {totalTrackCount > 0 && (
-              <span>
-                <strong className="font-semibold text-foreground">{totalTrackCount}</strong> {totalTrackCount === 1 ? 'track' : 'tracks'}
-              </span>
+          <div className="min-w-0">
+            <Badge variant="secondary" className="mb-2">Artist</Badge>
+            <div className="flex items-center gap-3 mb-1">
+              <h1 className="text-2xl font-bold truncate">{artist.name}</h1>
+              <Button
+                variant={isFollowing ? 'secondary' : 'outline'}
+                size="icon"
+                className={cn(
+                  'size-8 rounded-full border-primary/40 hover:border-primary shrink-0 transition-colors',
+                  isFollowing && 'bg-primary/20 text-primary border-primary'
+                )}
+                onClick={() =>
+                  toggleFavorite(artist.artistId, 'artist', {
+                    ...artist,
+                    totalTracks: totalTrackCount,
+                    songs: allMasterTracks
+                  })
+                }
+                title={isFollowing ? 'Remove from sidebar' : 'Add to sidebar'}
+              >
+                {isFollowing ? <Check className="size-4 text-primary" /> : <Plus className="size-4 text-primary" />}
+              </Button>
+            </div>
+            {artist.subscribers && (
+              <p className="text-sm text-muted-foreground mb-1">{artist.subscribers}</p>
             )}
-            {(totalTrackCount > 0 && (albums.length > 0 || singles.length > 0)) && <span> {'\u00B7'} </span>}
-            {albums.length > 0 && <span>{albums.length} albums</span>}
-            {albums.length > 0 && singles.length > 0 && <span> {'\u00B7'} </span>}
-            {singles.length > 0 && <span>{singles.length} singles</span>}
-            {fetchingAlbumTracks && (
-              <span className="ml-2 text-xs text-primary font-medium inline-flex items-center gap-1">
-                <Loader2 className="size-3 animate-spin" />
-                indexing...
-              </span>
-            )}
-          </p>
+            <p className="text-sm text-muted-foreground">
+              {totalTrackCount > 0 && (
+                <span>
+                  <strong className="font-semibold text-foreground">{totalTrackCount}</strong> {totalTrackCount === 1 ? 'track' : 'tracks'}
+                </span>
+              )}
+              {(totalTrackCount > 0 && (albums.length > 0 || singles.length > 0)) && <span> {'\u00B7'} </span>}
+              {albums.length > 0 && <span>{albums.length} albums</span>}
+              {albums.length > 0 && singles.length > 0 && <span> {'\u00B7'} </span>}
+              {singles.length > 0 && <span>{singles.length} singles</span>}
+              {fetchingAlbumTracks && (
+                <span className="ml-2 text-xs text-primary font-medium inline-flex items-center gap-1">
+                  <Loader2 className="size-3 animate-spin" />
+                  indexing...
+                </span>
+              )}
+            </p>
+          </div>
         </div>
-      </div>
 
-      <div className="flex gap-3 mb-6">
-        {songs.length > 0 && (
+        <div className="flex gap-3">
+          {songs.length > 0 && (
+            <Button
+              className={cn(
+                'gap-2',
+                isPlayingFromArtist && isPlaying
+                  ? 'bg-primary text-primary-foreground hover:bg-primary/90'
+                  : 'bg-primary text-primary-foreground hover:bg-primary/90'
+              )}
+              onClick={handlePlayAll}
+            >
+              {isPlayingFromArtist && isPlaying ? (
+                <>
+                  <Pause className="size-4 fill-current" />
+                  Pause
+                </>
+              ) : (
+                <>
+                  <Play className="size-4 fill-current" />
+                  Play All
+                </>
+              )}
+            </Button>
+          )}
           <Button
+            variant={isFollowing ? 'secondary' : 'outline'}
             className={cn(
-              'gap-2',
-              isPlayingFromArtist && isPlaying
-                ? 'bg-primary text-primary-foreground hover:bg-primary/90'
-                : 'bg-primary text-primary-foreground hover:bg-primary/90'
+              'gap-2 border-primary/40 hover:border-primary transition-all duration-200',
+              isFollowing ? 'bg-primary/20 text-primary border-primary/60' : 'hover:bg-primary/10'
             )}
-            onClick={handlePlayAll}
+            onClick={() =>
+              toggleFavorite(artist.artistId, 'artist', {
+                ...artist,
+                totalTracks: totalTrackCount,
+                songs: allMasterTracks
+              })
+            }
           >
-            {isPlayingFromArtist && isPlaying ? (
+            {isFollowing ? (
               <>
-                <Pause className="size-4 fill-current" />
-                Pause
+                <Check className="size-4 text-primary" />
+                In Sidebar
               </>
             ) : (
               <>
-                <Play className="size-4 fill-current" />
-                Play All
+                <Plus className="size-4 text-primary" />
+                Add to Sidebar
               </>
             )}
           </Button>
+          <Button
+            variant={showSearch ? 'default' : 'secondary'}
+            className={cn('gap-2 transition-all duration-200', showSearch && 'bg-primary text-primary-foreground hover:bg-primary/90')}
+            onClick={handleToggleSearch}
+          >
+            {showSearch ? <X className="size-4" /> : <Search className="size-4" />}
+            {showSearch ? 'Close Search' : 'Search Tracks'}
+          </Button>
+        </div>
+
+        {/* Full-width Search Bar for filtering Artist Page content across all albums */}
+        {showSearch && (
+          <div className="relative mt-4 w-full">
+            <div className="relative w-full">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+              <Input
+                type="text"
+                autoFocus
+                placeholder={`Search all ${artist.name}'s tracks, albums, and singles...`}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10 pr-10 h-10 bg-accent/40 border-primary/40 text-sm focus-visible:ring-1 focus-visible:ring-primary w-full shadow-lg rounded-xl"
+              />
+              {searchQuery ? (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-1 rounded-full transition-colors"
+                  title="Clear query"
+                >
+                  <X className="size-4" />
+                </button>
+              ) : fetchingAlbumTracks ? (
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Loader2 className="size-3.5 animate-spin text-primary" />
+                  <span className="text-[10px]">Indexing all albums...</span>
+                </div>
+              ) : null}
+            </div>
+          </div>
         )}
-        <Button
-          variant={isFollowing ? 'secondary' : 'outline'}
-          className={cn(
-            'gap-2 border-primary/40 hover:border-primary transition-all duration-200',
-            isFollowing ? 'bg-primary/20 text-primary border-primary/60' : 'hover:bg-primary/10'
-          )}
-          onClick={() =>
-            toggleFavorite(artist.artistId, 'artist', {
-              ...artist,
-              totalTracks: totalTrackCount,
-              songs: allMasterTracks
-            })
-          }
-        >
-          {isFollowing ? (
-            <>
-              <Check className="size-4 text-primary" />
-              In Sidebar
-            </>
-          ) : (
-            <>
-              <Plus className="size-4 text-primary" />
-              Add to Sidebar
-            </>
-          )}
-        </Button>
-        <Button
-          variant={showSearch ? 'default' : 'secondary'}
-          className={cn('gap-2 transition-all duration-200', showSearch && 'bg-primary text-primary-foreground hover:bg-primary/90')}
-          onClick={handleToggleSearch}
-        >
-          {showSearch ? <X className="size-4" /> : <Search className="size-4" />}
-          {showSearch ? 'Close Search' : 'Search Tracks'}
-        </Button>
       </div>
 
-      {/* Full-width Search Bar for filtering Artist Page content across all albums */}
-      {showSearch && (
-        <div className="relative mb-6 w-full">
-          <div className="relative w-full">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-            <Input
-              type="text"
-              autoFocus
-              placeholder={`Search all ${artist.name}'s tracks, albums, and singles...`}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10 pr-10 h-11 bg-accent/40 border-primary/40 text-sm focus-visible:ring-1 focus-visible:ring-primary w-full shadow-lg rounded-xl"
-            />
-            {searchQuery ? (
-              <button
-                type="button"
-                onClick={() => setSearchQuery('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-1 rounded-full transition-colors"
-                title="Clear query"
-              >
-                <X className="size-4" />
-              </button>
-            ) : fetchingAlbumTracks ? (
-              <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Loader2 className="size-3.5 animate-spin text-primary" />
-                <span className="text-[10px]">Indexing all albums...</span>
-              </div>
-            ) : null}
-          </div>
-        </div>
-      )}
-
-      {/* Comprehensive Search Results across All Songs & All Album Tracks & Albums & Singles when searchQuery is active */}
+      {/* Scrollable Content */}
+      <div className="flex-1 overflow-y-auto px-8 py-6">
       {query.length > 0 ? (
         <div className="space-y-8">
           {matchingSongs.length > 0 && (
@@ -613,11 +643,12 @@ export default function ArtistDetail({ artistId, onBack }: ArtistDetailProps) {
                           className="aspect-square bg-muted rounded-t-xl overflow-hidden flex items-center justify-center"
                           onDoubleClick={() => navigateTo('album', album.albumId)}
                         >
-                          {bestThumbnailUrl(album.thumbnails) ? (
-                            <img src={bestThumbnailUrl(album.thumbnails)} alt={album.name} className="w-full h-full object-cover" />
-                          ) : (
-                            <Disc3 className="size-8 text-muted-foreground" />
-                          )}
+                          <CachedImage
+                            src={bestThumbnailUrl(album.thumbnails)}
+                            alt={album.name}
+                            className="w-full h-full object-cover"
+                            fallbackIcon={<Disc3 className="size-8 text-muted-foreground" />}
+                          />
                         </div>
                         {/* Play button overlay */}
                         <button
@@ -662,11 +693,12 @@ export default function ArtistDetail({ artistId, onBack }: ArtistDetailProps) {
                           className="aspect-square bg-muted rounded-t-xl overflow-hidden flex items-center justify-center"
                           onDoubleClick={() => navigateTo('album', album.albumId)}
                         >
-                          {bestThumbnailUrl(album.thumbnails) ? (
-                            <img src={bestThumbnailUrl(album.thumbnails)} alt={album.name} className="w-full h-full object-cover" />
-                          ) : (
-                            <Disc3 className="size-8 text-muted-foreground" />
-                          )}
+                          <CachedImage
+                            src={bestThumbnailUrl(album.thumbnails)}
+                            alt={album.name}
+                            className="w-full h-full object-cover"
+                            fallbackIcon={<Disc3 className="size-8 text-muted-foreground" />}
+                          />
                         </div>
                         {/* Play button overlay */}
                         <button
@@ -698,6 +730,7 @@ export default function ArtistDetail({ artistId, onBack }: ArtistDetailProps) {
           )}
         </>
       )}
+      </div>
     </div>
   )
 }

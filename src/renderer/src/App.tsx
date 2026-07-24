@@ -18,6 +18,8 @@ import Player from './components/Player/Player'
 import DownloadPopup from './components/Downloads/DownloadPopup'
 import TitleBar from './components/TitleBar/TitleBar'
 
+import { cn } from '@/lib/utils'
+
 export default function App() {
   const [view, setView] = useState<ViewType>('home')
   const [searchQuery, setSearchQuery] = useState('')
@@ -107,12 +109,17 @@ export default function App() {
 
   return (
     <NavigationProvider navigateTo={navigateTo}>
-      <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden">
+      <div
+        className={cn(
+          'flex flex-col h-screen w-screen bg-background text-foreground overflow-hidden',
+          !isFullScreen && 'rounded-2xl border border-border/80 shadow-2xl'
+        )}
+      >
         {!isFullScreen && <TitleBar />}
         <div className="flex flex-1 overflow-hidden">
           <Sidebar currentView={view} currentViewData={viewData} onNavigate={(v, id) => navigateTo(v, id)} />
-          <main className="flex-1 flex flex-col min-w-0">
-            <div className="flex-1 overflow-y-auto">
+          <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+            <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
               {renderView()}
             </div>
             <Player />

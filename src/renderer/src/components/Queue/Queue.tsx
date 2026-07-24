@@ -52,47 +52,52 @@ export default function Queue() {
   })
 
   return (
-    <div className="p-8">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-        <div className="flex items-center gap-3">
-          <h2 className="text-2xl font-bold">Queue</h2>
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* Fixed Header */}
+      <div className="shrink-0 px-8 pt-8 pb-4 bg-background/95 backdrop-blur-md z-20 border-b border-border/10">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <h2 className="text-2xl font-bold">Queue</h2>
+            {queue.length > 0 && (
+              <span className="text-xs text-muted-foreground bg-accent/60 border border-border/40 px-2.5 py-1 rounded-full font-medium">
+                {queue.length} {queue.length === 1 ? 'track' : 'tracks'}
+              </span>
+            )}
+          </div>
           {queue.length > 0 && (
-            <span className="text-xs text-muted-foreground bg-accent/60 border border-border/40 px-2.5 py-1 rounded-full font-medium">
-              {queue.length} {queue.length === 1 ? 'track' : 'tracks'}
-            </span>
+            <div className="flex items-center gap-3">
+              <div className="relative w-64">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+                <Input
+                  type="text"
+                  placeholder="Search queue..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-9 pr-8 h-9 bg-accent/40 border-border/60 text-sm focus-visible:ring-1"
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors p-0.5 rounded-full"
+                    title="Clear search"
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                )}
+              </div>
+              <Button variant="destructive" size="sm" onClick={clearQueue} className="h-9">
+                <Trash2 className="size-4" />
+                Clear Queue
+              </Button>
+            </div>
           )}
         </div>
-        {queue.length > 0 && (
-          <div className="flex items-center gap-3">
-            <div className="relative w-64">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-              <Input
-                type="text"
-                placeholder="Search queue..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9 pr-8 h-9 bg-accent/40 border-border/60 text-sm focus-visible:ring-1"
-              />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors p-0.5 rounded-full"
-                  title="Clear search"
-                >
-                  <X className="size-3.5" />
-                </button>
-              )}
-            </div>
-            <Button variant="destructive" size="sm" onClick={clearQueue} className="h-9">
-              <Trash2 className="size-4" />
-              Clear Queue
-            </Button>
-          </div>
-        )}
       </div>
 
-      {currentTrack && isCurrentTrackMatching && (
+      {/* Scrollable Content */}
+      <div className="flex-1 overflow-y-auto px-8 py-6">
+        {currentTrack && isCurrentTrackMatching && (
         <div className="mb-8">
           <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">Now Playing</h3>
           <div className="flex items-center gap-3 p-3 rounded-lg bg-accent/50 border border-primary/20">
@@ -262,6 +267,7 @@ export default function Queue() {
           <p className="text-sm">Play some music to fill your queue</p>
         </div>
       )}
+      </div>
     </div>
   )
 }

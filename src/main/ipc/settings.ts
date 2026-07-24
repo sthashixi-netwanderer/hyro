@@ -5,10 +5,12 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 const CONFIG_DIR = app.getPath('userData')
 const SETTINGS_FILE = join(CONFIG_DIR, 'settings.json')
 
-interface AppSettings {
+export interface AppSettings {
   groqApiKey: string
   cookieBrowser: string
   volume?: number
+  theme?: 'dark' | 'light' | 'system'
+  minimizeToTray?: boolean
 }
 
 function ensureConfigDir(): void {
@@ -17,18 +19,20 @@ function ensureConfigDir(): void {
   }
 }
 
-function loadSettings(): AppSettings {
+export function loadSettings(): AppSettings {
   try {
-    if (!existsSync(SETTINGS_FILE)) return { groqApiKey: '', cookieBrowser: '' }
+    if (!existsSync(SETTINGS_FILE)) return { groqApiKey: '', cookieBrowser: '', theme: 'system', minimizeToTray: false }
     const data = readFileSync(SETTINGS_FILE, 'utf-8')
     const parsed = JSON.parse(data)
     return {
       groqApiKey: parsed.groqApiKey || '',
       cookieBrowser: parsed.cookieBrowser || '',
-      volume: typeof parsed.volume === 'number' ? parsed.volume : undefined
+      volume: typeof parsed.volume === 'number' ? parsed.volume : undefined,
+      theme: parsed.theme || 'system',
+      minimizeToTray: typeof parsed.minimizeToTray === 'boolean' ? parsed.minimizeToTray : false
     }
   } catch {
-    return { groqApiKey: '', cookieBrowser: '' }
+    return { groqApiKey: '', cookieBrowser: '', theme: 'system', minimizeToTray: false }
   }
 }
 

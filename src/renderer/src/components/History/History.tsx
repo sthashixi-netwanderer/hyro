@@ -134,78 +134,83 @@ export default function History() {
   }
 
   return (
-    <div className="p-8">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">History</h1>
-        <div className="flex gap-2">
-          {history.length > 0 && (
-            <>
-              {selectMode ? (
-                <>
-                  <Button variant="ghost" size="sm" onClick={() => { setSelectMode(false); setSelected(new Set()) }}>
-                    Cancel
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={selectAll}>
-                    {selected.size === (showSearch ? filteredHistory.length : history.length) ? 'Deselect All' : 'Select All'}
-                  </Button>
-                  {selected.size > 0 && (
-                    <Button variant="destructive" size="sm" onClick={handleDeleteSelected}>
-                      <Trash2 className="size-4" />
-                      Delete ({selected.size})
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* Fixed Header */}
+      <div className="shrink-0 px-8 pt-8 pb-4 bg-background/95 backdrop-blur-md z-20 border-b border-border/10">
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-bold">History</h1>
+          <div className="flex gap-2">
+            {history.length > 0 && (
+              <>
+                {selectMode ? (
+                  <>
+                    <Button variant="ghost" size="sm" onClick={() => { setSelectMode(false); setSelected(new Set()) }}>
+                      Cancel
                     </Button>
-                  )}
-                </>
-              ) : (
-                <>
-                  <Button 
-                    variant={showSearch ? "secondary" : "ghost"} 
-                    size="sm" 
-                    onClick={toggleSearch}
-                    className={cn(showSearch && "bg-accent text-white")}
-                  >
-                    <Search className="size-4" />
-                    Search
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={() => setSelectMode(true)}>
-                    <Trash className="size-4" />
-                    Select
-                  </Button>
-                  <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={handleClearAll}>
-                    <Trash2 className="size-4" />
-                    Clear All
-                  </Button>
-                </>
-              )}
-            </>
-          )}
+                    <Button variant="ghost" size="sm" onClick={selectAll}>
+                      {selected.size === (showSearch ? filteredHistory.length : history.length) ? 'Deselect All' : 'Select All'}
+                    </Button>
+                    {selected.size > 0 && (
+                      <Button variant="destructive" size="sm" onClick={handleDeleteSelected}>
+                        <Trash2 className="size-4" />
+                        Delete ({selected.size})
+                      </Button>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <Button 
+                      variant={showSearch ? "secondary" : "ghost"} 
+                      size="sm" 
+                      onClick={toggleSearch}
+                      className={cn(showSearch && "bg-accent text-white")}
+                    >
+                      <Search className="size-4" />
+                      Search
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => setSelectMode(true)}>
+                      <Trash className="size-4" />
+                      Select
+                    </Button>
+                    <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={handleClearAll}>
+                      <Trash2 className="size-4" />
+                      Clear All
+                    </Button>
+                  </>
+                )}
+              </>
+            )}
+          </div>
         </div>
+
+        {/* Search Input Bar (Shown when search is active) */}
+        {showSearch && history.length > 0 && (
+          <div className="relative mt-4 animate-in fade-in slide-in-from-top-1 duration-200">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+            <Input
+              placeholder="Search in history..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9 pr-9 bg-accent/40 border-none text-sm w-full max-w-md focus-visible:ring-1 focus-visible:ring-primary"
+              autoFocus
+            />
+            {searchQuery && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="absolute right-1 top-1/2 -translate-y-1/2 size-7 text-muted-foreground hover:text-white rounded-full"
+                onClick={() => setSearchQuery('')}
+              >
+                <X className="size-3.5" />
+              </Button>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Search Input Bar (Shown when search is active) */}
-      {showSearch && history.length > 0 && (
-        <div className="relative mb-6 animate-in fade-in slide-in-from-top-1 duration-200">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-          <Input
-            placeholder="Search in history..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-9 pr-9 bg-accent/40 border-none text-sm w-full max-w-md focus-visible:ring-1 focus-visible:ring-primary"
-            autoFocus
-          />
-          {searchQuery && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="absolute right-1 top-1/2 -translate-y-1/2 size-7 text-muted-foreground hover:text-white rounded-full"
-              onClick={() => setSearchQuery('')}
-            >
-              <X className="size-3.5" />
-            </Button>
-          )}
-        </div>
-      )}
-
-      {history.length === 0 ? (
+      {/* Scrollable Content */}
+      <div className="flex-1 overflow-y-auto px-8 py-6">
+        {history.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
           <Clock className="size-12 mb-4" />
           <p className="text-lg">No play history yet</p>
@@ -289,6 +294,7 @@ export default function History() {
           })}
         </div>
       )}
+      </div>
     </div>
   )
 }

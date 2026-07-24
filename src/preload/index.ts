@@ -16,7 +16,16 @@ const api = {
 
   // Player
   getStreamUrl: (videoId: string) => ipcRenderer.invoke('player:getStreamUrl', videoId),
-
+  savePlayerState: (state: any) => ipcRenderer.invoke('player-state:save', state),
+  loadPlayerState: () => ipcRenderer.invoke('player-state:load'),
+  onTrayPlayerAction: (callback: (action: 'toggle-play' | 'next' | 'prev') => void) => {
+    const handler = (_event: any, action: 'toggle-play' | 'next' | 'prev'): void => callback(action)
+    ipcRenderer.on('tray:player-action', handler)
+    return () => {
+      ipcRenderer.removeListener('tray:player-action', handler)
+    }
+  },
+  
   // Download
   downloadTrack: (track: any) => ipcRenderer.invoke('download:track', track),
   downloadAlbum: (album: any, tracks: any[]) => ipcRenderer.invoke('download:album', album, tracks),
@@ -61,6 +70,12 @@ const api = {
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (settings: { groqApiKey?: string; cookieBrowser?: string; volume?: number }) => ipcRenderer.invoke('settings:save', settings),
 
+  // Data Usage
+  getDataUsage: () => ipcRenderer.invoke('data-usage:get'),
+  recordDataUsage: (payload: { bytes: number; type?: 'stream' | 'cache' | 'download'; trackPlayed?: boolean }) =>
+    ipcRenderer.invoke('data-usage:record', payload),
+  resetDataUsage: () => ipcRenderer.invoke('data-usage:reset'),
+
   // Window Fullscreen controls
   setFullScreen: (flag: boolean) => ipcRenderer.invoke('window:setFullScreen', flag),
   onFullScreenChange: (callback: (isFullScreen: boolean) => void) => {
@@ -70,6 +85,14 @@ const api = {
       ipcRenderer.removeListener('window:fullscreen-changed', handler)
     }
   },
+
+  // Image Cache
+  getCachedImageUrl: (url: string) => ipcRenderer.invoke('image-cache:get', url),
+  preCacheImages: (urls: string[]) => ipcRenderer.invoke('image-cache:preCache', urls),
+
+  // Artist Cache
+  getCachedArtist: (artistId: string) => ipcRenderer.invoke('artist-cache:get', artistId),
+  forceSyncArtist: (artistId: string) => ipcRenderer.invoke('artist-cache:getSynced', artistId),
 
   // yt-dlp
   getYtDlpVersion: () => ipcRenderer.invoke('ytdlp:getVersion'),
