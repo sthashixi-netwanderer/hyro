@@ -95,6 +95,19 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     }).catch(() => {})
   }, [])
 
+  // Re-read max concurrent downloads when window gains focus (catches setting changes)
+  useEffect(() => {
+    const handleFocus = () => {
+      window.api.getSettings().then((settings: any) => {
+        if (typeof settings.maxConcurrentDownloads === 'number') {
+          maxConcurrentRef.current = settings.maxConcurrentDownloads
+        }
+      }).catch(() => {})
+    }
+    window.addEventListener('focus', handleFocus)
+    return () => window.removeEventListener('focus', handleFocus)
+  }, [])
+
   // Persist queue whenever downloads change
   useEffect(() => {
     if (downloads.length > 0) {

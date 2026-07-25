@@ -30,7 +30,8 @@ export function loadSettings(): AppSettings {
       cookieBrowser: parsed.cookieBrowser || '',
       volume: typeof parsed.volume === 'number' ? parsed.volume : undefined,
       theme: parsed.theme || 'system',
-      minimizeToTray: typeof parsed.minimizeToTray === 'boolean' ? parsed.minimizeToTray : false
+      minimizeToTray: typeof parsed.minimizeToTray === 'boolean' ? parsed.minimizeToTray : false,
+      maxConcurrentDownloads: typeof parsed.maxConcurrentDownloads === 'number' ? parsed.maxConcurrentDownloads : 1
     }
   } catch {
     return { groqApiKey: '', cookieBrowser: '', theme: 'system', minimizeToTray: false }
