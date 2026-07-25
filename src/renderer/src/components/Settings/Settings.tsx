@@ -27,6 +27,7 @@ export default function Settings() {
   const [savedCookieBrowser, setSavedCookieBrowser] = useState('')
   const [minimizeToTray, setMinimizeToTray] = useState(false)
   const [maxConcurrentDownloads, setMaxConcurrentDownloads] = useState(1)
+  const [savedMaxConcurrentDownloads, setSavedMaxConcurrentDownloads] = useState(1)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -54,7 +55,9 @@ export default function Settings() {
       setCookieBrowser(settings.cookieBrowser)
       setSavedCookieBrowser(settings.cookieBrowser)
       setMinimizeToTray(!!settings.minimizeToTray)
-      setMaxConcurrentDownloads(typeof settings.maxConcurrentDownloads === 'number' ? settings.maxConcurrentDownloads : 1)
+      const concurrent = typeof settings.maxConcurrentDownloads === 'number' ? settings.maxConcurrentDownloads : 1
+      setMaxConcurrentDownloads(concurrent)
+      setSavedMaxConcurrentDownloads(concurrent)
       setLoading(false)
     })
   }, [])
@@ -68,14 +71,9 @@ export default function Settings() {
     }
   }, [])
 
-  const handleConcurrentDownloadsChange = useCallback(async (val: number) => {
+  const handleConcurrentDownloadsChange = useCallback((val: number) => {
     const clamped = Math.max(1, Math.min(10, val))
     setMaxConcurrentDownloads(clamped)
-    try {
-      await window.api.saveSettings({ maxConcurrentDownloads: clamped })
-    } catch (err) {
-      logger.error('Failed to save concurrent downloads setting:', err)
-    }
   }, [])
 
   // Check yt-dlp version on mount
@@ -151,17 +149,18 @@ export default function Settings() {
     setSaving(true)
     setSaved(false)
     try {
-      await window.api.saveSettings({ groqApiKey: apiKey, cookieBrowser })
+      await window.api.saveSettings({ groqApiKey: apiKey, cookieBrowser, maxConcurrentDownloads })
       setSavedApiKey(apiKey)
       setSavedCookieBrowser(cookieBrowser)
+      setSavedMaxConcurrentDownloads(maxConcurrentDownloads)
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     } finally {
       setSaving(false)
     }
-  }, [apiKey, cookieBrowser])
+  }, [apiKey, cookieBrowser, maxConcurrentDownloads])
 
-  const hasChanges = apiKey !== savedApiKey || cookieBrowser !== savedCookieBrowser
+  const hasChanges = apiKey !== savedApiKey || cookieBrowser !== savedCookieBrowser || maxConcurrentDownloads !== savedMaxConcurrentDownloads
 
   if (loading) {
     return (
@@ -279,6 +278,21 @@ export default function Settings() {
                 disabled={maxConcurrentDownloads >= 10}
               >
                 +
+              </Button>
+              <Button
+                variant={saved && maxConcurrentDownloads === savedMaxConcurrentDownloads ? 'default' : 'outline'}
+                size="default"
+                onClick={handleSave}
+                disabled={saving || !hasChanges}
+                className="shrink-0 min-w-[80px] ml-2"
+              >
+                {saved && maxConcurrentDownloads === savedMaxConcurrentDownloads ? (
+                  <span className="flex items-center gap-1.5"><Check className="size-3.5" /> Saved</span>
+                ) : saving ? (
+                  'Saving…'
+                ) : (
+                  'Save'
+                )}
               </Button>
             </div>
           </div>
