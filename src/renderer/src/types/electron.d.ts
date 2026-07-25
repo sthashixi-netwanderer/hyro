@@ -65,8 +65,8 @@ interface ElectronAPI {
   isFavorited: (id: string, type: string) => Promise<boolean>
 
   // Settings
-  getSettings: () => Promise<{ groqApiKey: string; cookieBrowser: string; volume?: number; theme?: 'dark' | 'light' | 'system'; minimizeToTray?: boolean }>
-  saveSettings: (settings: { groqApiKey?: string; cookieBrowser?: string; volume?: number; theme?: 'dark' | 'light' | 'system'; minimizeToTray?: boolean }) => Promise<{ success: boolean }>
+  getSettings: () => Promise<{ groqApiKey: string; cookieBrowser: string; volume?: number; theme?: 'dark' | 'light' | 'system'; minimizeToTray?: boolean; maxConcurrentDownloads?: number }>
+  saveSettings: (settings: { groqApiKey?: string; cookieBrowser?: string; volume?: number; theme?: 'dark' | 'light' | 'system'; minimizeToTray?: boolean; maxConcurrentDownloads?: number }) => Promise<{ success: boolean }>
 
   // Data Usage
   getDataUsage: () => Promise<import('../../../shared/types').DataUsageStats>

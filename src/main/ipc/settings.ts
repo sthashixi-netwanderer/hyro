@@ -11,6 +11,7 @@ export interface AppSettings {
   volume?: number
   theme?: 'dark' | 'light' | 'system'
   minimizeToTray?: boolean
+  maxConcurrentDownloads?: number
 }
 
 function ensureConfigDir(): void {

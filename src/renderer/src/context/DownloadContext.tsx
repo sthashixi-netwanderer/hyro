@@ -6,7 +6,7 @@ export interface DownloadItem {
   type: 'track' | 'album' | 'playlist'
   trackName: string
   progress: number
-  status: 'downloading' | 'done' | 'error' | 'cancelled' | 'interrupted'
+  status: 'downloading' | 'done' | 'error' | 'cancelled' | 'interrupted' | 'queued'
   error?: string
   trackIndex?: number
   totalTracks?: number
@@ -17,16 +17,27 @@ export interface DownloadItem {
   tracks?: Track[]
 }
 
+interface QueuedDownload {
+  id: string
+  type: 'track' | 'album' | 'playlist'
+  trackName: string
+  track?: Track
+  album?: any
+  playlist?: any
+  tracks?: Track[]
+}
+
 interface DownloadContextType {
   downloads: DownloadItem[]
   activeCount: number
+  queuedCount: number
   downloadedVideoIds: Set<string>
   isDownloaded: (videoId: string) => boolean
   allDownloaded: (tracks: Track[]) => boolean
   someDownloaded: (tracks: Track[]) => boolean
-  downloadTrack: (track: any) => Promise<void>
-  downloadAlbum: (album: any, tracks: Track[]) => Promise<void>
-  downloadPlaylist: (playlist: any, tracks: Track[]) => Promise<void>
+  downloadTrack: (track: any) => void
+  downloadAlbum: (album: any, tracks: Track[]) => void
+  downloadPlaylist: (playlist: any, tracks: Track[]) => void
   cancelDownload: (id: string) => void
   retryDownload: (item: DownloadItem) => void
   dismissCompleted: () => void
@@ -50,16 +61,16 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   const [downloads, setDownloads] = useState<DownloadItem[]>([])
   const [downloadedVideoIds, setDownloadedVideoIds] = useState<Set<string>>(new Set())
   const [isPopupExpanded, setIsPopupExpanded] = useState(false)
-  const cleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // Stores full track metadata keyed by download ID for persistence
   const trackMetadataRef = useRef<Map<string, { track?: Track; album?: any; playlist?: any; tracks?: Track[] }>>(new Map())
+  const maxConcurrentRef = useRef(1)
+  const activeCountRef = useRef(0)
+  const queueRef = useRef<QueuedDownload[]>([])
 
   // Debounced save to disk
   const persistQueue = useCallback((items: DownloadItem[]) => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     saveTimerRef.current = setTimeout(() => {
-      // Only persist items that aren't done (no need to save completed ones)
       const toSave = items.filter(d => d.status !== 'done')
       window.api.saveDownloadQueue(toSave)
     }, 500)
@@ -71,11 +82,17 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       if (!saved || saved.length === 0) return
       const restored: DownloadItem[] = saved.map((item: any) => ({
         ...item,
-        // Mark any in-progress downloads as interrupted
         status: item.status === 'downloading' ? 'interrupted' as const : item.status
       }))
       setDownloads(restored)
     })
+
+    // Load max concurrent downloads setting
+    window.api.getSettings().then((settings: any) => {
+      if (typeof settings.maxConcurrentDownloads === 'number') {
+        maxConcurrentRef.current = settings.maxConcurrentDownloads
+      }
+    }).catch(() => {})
   }, [])
 
   // Persist queue whenever downloads change
@@ -99,7 +116,6 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     refreshDownloaded()
   }, [refreshDownloaded])
 
-  // Automatically refresh when window gains focus (detect manual deletions outside the app)
   useEffect(() => {
     const handleFocus = () => {
       refreshDownloaded()
@@ -115,7 +131,6 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         if (existing) {
           return prev.map(d => d.id === data.id ? { ...d, ...data, trackName: data.trackName || existing.trackName } : d)
         }
-        // Retrieve stored metadata for this download
         const meta = trackMetadataRef.current.get(data.id)
         const resolvedName = data.trackName || meta?.track?.name || meta?.album?.name || meta?.playlist?.name || data.id
         return [...prev, {
@@ -134,7 +149,11 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         }]
       })
 
-      // When a download completes, refresh the downloaded set
+      if (data.status === 'done' || data.status === 'error' || data.status === 'cancelled') {
+        activeCountRef.current = Math.max(0, activeCountRef.current - 1)
+        processQueue()
+      }
+
       if (data.status === 'done') {
         refreshDownloaded()
       }
@@ -144,8 +163,6 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       removeListener()
     }
   }, [refreshDownloaded])
-
-  // Auto-dismiss disabled, downloads are persisted and cleared manually via UI.
 
   const isDownloaded = useCallback((videoId: string) => {
     return downloadedVideoIds.has(videoId)
@@ -160,37 +177,121 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     return tracks.some(t => downloadedVideoIds.has(t.videoId))
   }, [downloadedVideoIds])
 
-  const downloadTrack = useCallback(async (track: any) => {
+  // Process the download queue
+  const processQueue = useCallback(() => {
+    while (queueRef.current.length > 0 && activeCountRef.current < maxConcurrentRef.current) {
+      const next = queueRef.current.shift()!
+      activeCountRef.current++
+
+      if (next.type === 'track' && next.track) {
+        window.api.downloadTrack(next.track).catch(() => {})
+      } else if (next.type === 'album' && next.album && next.tracks) {
+        window.api.downloadAlbum(next.album, next.tracks).catch(() => {})
+      } else if (next.type === 'playlist' && next.playlist && next.tracks) {
+        window.api.downloadPlaylist(next.playlist, next.tracks).catch(() => {})
+      } else {
+        activeCountRef.current--
+      }
+    }
+  }, [])
+
+  const downloadTrack = useCallback((track: any) => {
     if (downloadedVideoIds.has(track.videoId)) return
     trackMetadataRef.current.set(track.videoId, { track })
-    await window.api.downloadTrack(track)
+
+    const item: QueuedDownload = {
+      id: track.videoId,
+      type: 'track',
+      trackName: track.name,
+      track
+    }
+
+    if (activeCountRef.current < maxConcurrentRef.current) {
+      activeCountRef.current++
+      window.api.downloadTrack(track).catch(() => {})
+    } else {
+      queueRef.current.push(item)
+      setDownloads(prev => [...prev, {
+        id: track.videoId,
+        type: 'track',
+        trackName: track.name,
+        progress: 0,
+        status: 'queued',
+        track
+      }])
+    }
   }, [downloadedVideoIds])
 
-  const downloadAlbum = useCallback(async (album: any, tracks: Track[]) => {
-    // Filter out already-downloaded tracks
+  const downloadAlbum = useCallback((album: any, tracks: Track[]) => {
     const toDownload = tracks.filter(t => !downloadedVideoIds.has(t.videoId))
     if (toDownload.length === 0) return
-    // Store metadata for each track
     for (const t of toDownload) {
       trackMetadataRef.current.set(`album:${album.albumId}:${t.videoId}`, { track: t, album, tracks: toDownload })
     }
-    await window.api.downloadAlbum(album, toDownload)
+
+    const id = `album:${album.albumId}`
+    const item: QueuedDownload = {
+      id,
+      type: 'album',
+      trackName: album.name,
+      album,
+      tracks: toDownload
+    }
+
+    if (activeCountRef.current < maxConcurrentRef.current) {
+      activeCountRef.current++
+      window.api.downloadAlbum(album, toDownload).catch(() => {})
+    } else {
+      queueRef.current.push(item)
+      setDownloads(prev => [...prev, {
+        id,
+        type: 'album',
+        trackName: album.name,
+        progress: 0,
+        status: 'queued',
+        album,
+        tracks: toDownload
+      }])
+    }
   }, [downloadedVideoIds])
 
-  const downloadPlaylist = useCallback(async (playlist: any, tracks: Track[]) => {
-    // Filter out already-downloaded tracks
+  const downloadPlaylist = useCallback((playlist: any, tracks: Track[]) => {
     const toDownload = tracks.filter(t => !downloadedVideoIds.has(t.videoId))
     if (toDownload.length === 0) return
-    // Store metadata for each track
     for (const t of toDownload) {
       trackMetadataRef.current.set(`playlist:${playlist.playlistId}:${t.videoId}`, { track: t, playlist, tracks: toDownload })
     }
-    await window.api.downloadPlaylist(playlist, toDownload)
+
+    const id = `playlist:${playlist.playlistId}`
+    const item: QueuedDownload = {
+      id,
+      type: 'playlist',
+      trackName: playlist.name,
+      playlist,
+      tracks: toDownload
+    }
+
+    if (activeCountRef.current < maxConcurrentRef.current) {
+      activeCountRef.current++
+      window.api.downloadPlaylist(playlist, toDownload).catch(() => {})
+    } else {
+      queueRef.current.push(item)
+      setDownloads(prev => [...prev, {
+        id,
+        type: 'playlist',
+        trackName: playlist.name,
+        progress: 0,
+        status: 'queued',
+        playlist,
+        tracks: toDownload
+      }])
+    }
   }, [downloadedVideoIds])
 
   const cancelDownload = useCallback(async (id: string) => {
+    // Remove from queue if queued
+    queueRef.current = queueRef.current.filter(q => q.id !== id)
     await window.api.cancelDownload(id)
-    // Mark as cancelled locally
     setDownloads(prev => prev.map(d =>
       d.id === id ? { ...d, status: 'cancelled' as const, progress: 0 } : d
     ))
@@ -198,28 +299,28 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
 
   const retryDownload = useCallback(async (item: DownloadItem) => {
     if (item.type === 'track' && item.track) {
-      // Remove the interrupted item and re-initiate
       setDownloads(prev => prev.filter(d => d.id !== item.id))
-      await window.api.downloadTrack(item.track)
+      downloadTrack(item.track)
     } else if (item.type === 'album' && item.album && item.tracks) {
       setDownloads(prev => prev.filter(d => d.id !== item.id))
-      await window.api.downloadAlbum(item.album, item.tracks)
+      downloadAlbum(item.album, item.tracks)
     } else if (item.type === 'playlist' && item.playlist && item.tracks) {
       setDownloads(prev => prev.filter(d => d.id !== item.id))
-      await window.api.downloadPlaylist(item.playlist, item.tracks)
+      downloadPlaylist(item.playlist, item.tracks)
     }
-  }, [])
+  }, [downloadTrack, downloadAlbum, downloadPlaylist])
 
   const dismissCompleted = useCallback(() => {
-    setDownloads(prev => prev.filter(d => d.status === 'downloading' || d.status === 'interrupted'))
+    setDownloads(prev => prev.filter(d => d.status === 'downloading' || d.status === 'interrupted' || d.status === 'queued'))
   }, [])
 
   const dismissDownload = useCallback((id: string) => {
+    queueRef.current = queueRef.current.filter(q => q.id !== id)
     setDownloads(prev => prev.filter(d => d.id !== id))
   }, [])
 
   const isDownloading = useCallback((id: string) => {
-    return downloads.some(d => (d.id === id || d.id.endsWith(`:${id}`)) && d.status === 'downloading')
+    return downloads.some(d => (d.id === id || d.id.endsWith(`:${id}`)) && (d.status === 'downloading' || d.status === 'queued'))
   }, [downloads])
 
   const getProgress = useCallback((id: string) => {
@@ -227,6 +328,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   }, [downloads])
 
   const activeCount = downloads.filter(d => d.status === 'downloading').length
+  const queuedCount = downloads.filter(d => d.status === 'queued').length
 
   useEffect(() => {
     if (activeCount === 0 && isPopupExpanded) {
@@ -238,6 +340,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     <DownloadContext.Provider value={{
       downloads,
       activeCount,
+      queuedCount,
       downloadedVideoIds,
       isDownloaded,
       allDownloaded,

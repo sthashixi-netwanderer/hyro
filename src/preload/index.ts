@@ -68,7 +68,7 @@ const api = {
 
   // Settings
   getSettings: () => ipcRenderer.invoke('settings:get'),
-  saveSettings: (settings: { groqApiKey?: string; cookieBrowser?: string; volume?: number }) => ipcRenderer.invoke('settings:save', settings),
+  saveSettings: (settings: { groqApiKey?: string; cookieBrowser?: string; volume?: number; minimizeToTray?: boolean; maxConcurrentDownloads?: number }) => ipcRenderer.invoke('settings:save', settings),
 
   // Data Usage
   getDataUsage: () => ipcRenderer.invoke('data-usage:get'),

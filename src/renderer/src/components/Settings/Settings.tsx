@@ -2,7 +2,7 @@ import { logger } from '../../utils/logger'
 import { useState, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Check, Key, ExternalLink, AlertCircle, Globe, Download, Loader2, RefreshCw, Activity, Palette, Minimize2 } from 'lucide-react'
+import { Check, Key, ExternalLink, AlertCircle, Globe, Download, Loader2, RefreshCw, Activity, Palette, Minimize2, Layers } from 'lucide-react'
 import DataUsageModal from './DataUsageModal'
 import type { DataUsageStats } from '../../../../shared/types'
 import { formatBytes } from '../../../../shared/utils'
@@ -26,6 +26,7 @@ export default function Settings() {
   const [cookieBrowser, setCookieBrowser] = useState('')
   const [savedCookieBrowser, setSavedCookieBrowser] = useState('')
   const [minimizeToTray, setMinimizeToTray] = useState(false)
+  const [maxConcurrentDownloads, setMaxConcurrentDownloads] = useState(1)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -53,6 +54,7 @@ export default function Settings() {
       setCookieBrowser(settings.cookieBrowser)
       setSavedCookieBrowser(settings.cookieBrowser)
       setMinimizeToTray(!!settings.minimizeToTray)
+      setMaxConcurrentDownloads(typeof settings.maxConcurrentDownloads === 'number' ? settings.maxConcurrentDownloads : 1)
       setLoading(false)
     })
   }, [])
@@ -63,6 +65,16 @@ export default function Settings() {
       await window.api.saveSettings({ minimizeToTray: val })
     } catch (err) {
       logger.error('Failed to save minimize to tray setting:', err)
+    }
+  }, [])
+
+  const handleConcurrentDownloadsChange = useCallback(async (val: number) => {
+    const clamped = Math.max(1, Math.min(10, val))
+    setMaxConcurrentDownloads(clamped)
+    try {
+      await window.api.saveSettings({ maxConcurrentDownloads: clamped })
+    } catch (err) {
+      logger.error('Failed to save concurrent downloads setting:', err)
     }
   }, [])
 
@@ -230,6 +242,48 @@ export default function Settings() {
           </div>
           <p className="text-xs text-muted-foreground leading-relaxed mt-3 pt-3 border-t border-border/40">
             When enabled, closing the window hides Hyro Music to the system tray so your music continues playing without interruption. Right-click the tray icon to show controls or exit.
+          </p>
+        </div>
+
+        {/* Concurrent Downloads Section */}
+        <div className="rounded-2xl bg-card border border-border/80 p-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="size-9 rounded-xl bg-primary/10 flex items-center justify-center">
+                <Layers className="size-4 text-primary" />
+              </div>
+              <div>
+                <h2 className="text-sm font-semibold text-foreground">Concurrent Downloads</h2>
+                <p className="text-xs text-muted-foreground">Number of tracks to download simultaneously</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="icon-sm"
+                className="size-8"
+                onClick={() => handleConcurrentDownloadsChange(maxConcurrentDownloads - 1)}
+                disabled={maxConcurrentDownloads <= 1}
+              >
+                -
+              </Button>
+              <span className="text-sm font-mono font-semibold text-foreground w-6 text-center">
+                {maxConcurrentDownloads}
+              </span>
+              <Button
+                variant="outline"
+                size="icon-sm"
+                className="size-8"
+                onClick={() => handleConcurrentDownloadsChange(maxConcurrentDownloads + 1)}
+                disabled={maxConcurrentDownloads >= 10}
+              >
+                +
+              </Button>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground leading-relaxed mt-3 pt-3 border-t border-border/40">
+            Controls how many tracks download at the same time. Higher values use more bandwidth and disk I/O. Default is 1 (sequential).
           </p>
         </div>
 

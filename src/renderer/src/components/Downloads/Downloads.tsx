@@ -1,12 +1,13 @@
 import { useDownload, type DownloadItem } from '../../context/DownloadContext'
 import { Button } from '@/components/ui/button'
-import { Download, CheckCircle2, XCircle, X, RotateCw, Trash2, Loader2, AlertCircle } from 'lucide-react'
+import { Download, CheckCircle2, XCircle, X, RotateCw, Trash2, Loader2, AlertCircle, Clock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export default function Downloads() {
   const {
     downloads,
     activeCount,
+    queuedCount,
     cancelDownload,
     retryDownload,
     dismissCompleted,
@@ -29,6 +30,8 @@ export default function Downloads() {
         return 'Cancelled'
       case 'interrupted':
         return 'Interrupted'
+      case 'queued':
+        return 'Queued'
       default:
         return 'Pending'
     }
@@ -46,6 +49,8 @@ export default function Downloads() {
         return 'text-muted-foreground'
       case 'interrupted':
         return 'text-yellow-500'
+      case 'queued':
+        return 'text-blue-400'
       default:
         return 'text-muted-foreground'
     }
@@ -60,8 +65,10 @@ export default function Downloads() {
             <h1 className="text-2xl font-bold tracking-tight text-foreground mb-1">Downloads</h1>
             <p className="text-xs text-muted-foreground">
               {activeCount > 0
-                ? `Currently downloading ${activeCount} track${activeCount > 1 ? 's' : ''}`
-                : 'Manage and monitor your offline tracks download queue'
+                ? `Downloading ${activeCount} track${activeCount > 1 ? 's' : ''}${queuedCount > 0 ? `, ${queuedCount} queued` : ''}`
+                : queuedCount > 0
+                  ? `${queuedCount} track${queuedCount > 1 ? 's' : ''} queued`
+                  : 'Manage and monitor your offline tracks download queue'
               }
             </p>
           </div>
@@ -83,7 +90,7 @@ export default function Downloads() {
                 size="sm"
                 onClick={() => {
                   downloads.forEach(d => {
-                    if (d.status === 'downloading') {
+                    if (d.status === 'downloading' || d.status === 'queued') {
                       cancelDownload(d.id)
                     }
                   })
@@ -118,7 +125,8 @@ export default function Downloads() {
               key={item.id}
               className={cn(
                 "flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 bg-accent/25 border border-border rounded-xl hover:bg-accent/40 transition-colors",
-                item.status === 'downloading' && "border-primary/20 bg-primary/[0.02]"
+                item.status === 'downloading' && "border-primary/20 bg-primary/[0.02]",
+                item.status === 'queued' && "border-blue-500/20 bg-blue-500/[0.02] opacity-75"
               )}
             >
               {/* Left: Info */}
@@ -138,6 +146,9 @@ export default function Downloads() {
                   )}
                   {item.status === 'interrupted' && (
                     <AlertCircle className="size-4 text-yellow-500 shrink-0" />
+                  )}
+                  {item.status === 'queued' && (
+                    <Clock className="size-4 text-blue-400 shrink-0" />
                   )}
                   <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground shrink-0">
                     {item.type}
@@ -186,6 +197,17 @@ export default function Downloads() {
                       onClick={() => cancelDownload(item.id)}
                       className="text-muted-foreground hover:text-red-400 hover:bg-red-500/10 size-8"
                       title="Cancel"
+                    >
+                      <X className="size-4" />
+                    </Button>
+                  )}
+                  {item.status === 'queued' && (
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => cancelDownload(item.id)}
+                      className="text-muted-foreground hover:text-red-400 hover:bg-red-500/10 size-8"
+                      title="Remove from queue"
                     >
                       <X className="size-4" />
                     </Button>

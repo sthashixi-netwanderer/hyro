@@ -12,7 +12,10 @@ export default function TitleBar() {
   const { theme, setTheme } = useTheme()
 
   const activeDownloads = downloads.filter(d => d.status === 'downloading')
+  const queuedDownloads = downloads.filter(d => d.status === 'queued')
   const activeCount = activeDownloads.length
+  const queuedCount = queuedDownloads.length
+  const totalPending = activeCount + queuedCount
   const overallProgress = activeCount > 0
     ? Math.round(activeDownloads.reduce((sum, item) => sum + item.progress, 0) / activeCount)
     : 0
@@ -66,7 +69,7 @@ export default function TitleBar() {
         className="flex items-center h-full gap-2 -mr-4"
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       >
-        {activeCount > 0 && (
+        {totalPending > 0 && (
           <button
             onClick={() => setIsPopupExpanded(!isPopupExpanded)}
             className={cn(
@@ -75,7 +78,7 @@ export default function TitleBar() {
                 ? 'bg-primary/25 border-primary/50 text-primary shadow-sm'
                 : 'bg-primary/10 border-primary/20 hover:bg-primary/20 text-primary'
             )}
-            title={`Downloading ${activeCount} item${activeCount > 1 ? 's' : ''} (${overallProgress}%) - Click to toggle download details`}
+            title={`Downloading ${activeCount}, ${queuedCount} queued - Click to toggle download details`}
           >
             <div className="relative size-5 shrink-0">
               <svg className="size-5 -rotate-90" viewBox="0 0 20 20">
