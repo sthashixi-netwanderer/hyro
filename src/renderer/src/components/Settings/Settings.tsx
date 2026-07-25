@@ -71,9 +71,15 @@ export default function Settings() {
     }
   }, [])
 
-  const handleConcurrentDownloadsChange = useCallback((val: number) => {
+  const handleConcurrentDownloadsChange = useCallback(async (val: number) => {
     const clamped = Math.max(1, Math.min(10, val))
     setMaxConcurrentDownloads(clamped)
+    setSavedMaxConcurrentDownloads(clamped)
+    try {
+      await window.api.saveSettings({ maxConcurrentDownloads: clamped })
+    } catch (err) {
+      logger.error('Failed to save concurrent downloads setting:', err)
+    }
   }, [])
 
   // Check yt-dlp version on mount
