@@ -5,7 +5,7 @@ import { join, relative, dirname } from 'path'
 import { homedir } from 'os'
 import { existsSync, mkdirSync, writeFileSync, readdirSync, unlinkSync, readFileSync } from 'fs'
 import { addToRegistry } from './library'
-import { getCookieBrowser } from './settings'
+import { getCookieBrowser, loadSettings } from './settings'
 import { getYtDlpBinaryPath } from './ytdlp-path'
 
 const BASE_DIR = join(homedir(), 'Downloads', 'Hyro')
@@ -371,98 +371,114 @@ export function registerDownloadIPC(mainWindow: BrowserWindow | null): void {
     const albumDir = sanitize(album.name)
     const dir = join(BASE_DIR, artistDir, albumDir)
     const albumDownloadId = `album:${album.albumId}`
+    const settings = loadSettings()
+    const maxConcurrent = typeof settings.maxConcurrentDownloads === 'number' ? settings.maxConcurrentDownloads : 1
 
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
 
-    for (let i = 0; i < tracks.length; i++) {
-      const track = tracks[i]
-      const trackNum = String(i + 1).padStart(2, '0')
-      const trackName = sanitize(track.name)
-      const basePath = join(dir, `${trackNum}. ${trackName}`)
-      const trackDownloadId = `${albumDownloadId}:${track.videoId}`
+    let cancelled = false
+    const cancelHandler = (_event: any, downloadId: string) => {
+      if (downloadId === albumDownloadId || downloadId.startsWith(albumDownloadId + ':')) {
+        cancelled = true
+      }
+    }
+    ipcMain.on('download:cancel', cancelHandler)
 
-      try {
-        await downloadTrackAudio(trackDownloadId, track.videoId, basePath, (progress) => {
-          event.sender.send('download:progress', {
-            id: trackDownloadId,
-            type: 'album',
-            progress,
-            status: 'downloading',
-            trackIndex: i,
-            totalTracks: tracks.length,
-            trackName: track.name
-          })
-        })
+    try {
+      // Process tracks in batches of maxConcurrent
+      for (let batchStart = 0; batchStart < tracks.length && !cancelled; batchStart += maxConcurrent) {
+        const batch = tracks.slice(batchStart, batchStart + maxConcurrent)
+        const promises = batch.map((track, batchIdx) => {
+          const i = batchStart + batchIdx
+          const trackNum = String(i + 1).padStart(2, '0')
+          const trackName = sanitize(track.name)
+          const basePath = join(dir, `${trackNum}. ${trackName}`)
+          const trackDownloadId = `${albumDownloadId}:${track.videoId}`
 
-        const actualMp3 = findActualMp3(dir, `${trackNum}. ${trackName}`)
-        const finalBasePath = actualMp3 ? actualMp3.replace('.mp3', '') : basePath
-
-        // Keep thumbnail for album tracks so the album container has a local cover art
-        writeSidecarJson(finalBasePath, {
-          ...track,
-          artist: album.artist || track.artist,
-          album: { albumId: album.albumId || '', name: album.name }
-        }, {
-          container: `${artistDir} - ${albumDir}`,
-          containerType: 'album',
-          keepThumbnail: true
-        })
-
-        // Save lyrics for offline display (non-blocking)
-        saveLyricsForTrack(
-          (actualMp3 || basePath + '.mp3'),
-          track.name,
-          (album.artist || track.artist)?.name || 'Unknown Artist',
-          album.name || null,
-          track.duration || null
-        )
-
-        // Mark this individual track as done
-        event.sender.send('download:progress', {
-          id: trackDownloadId,
-          type: 'album',
-          trackName: track.name,
-          progress: 100,
-          status: 'done',
-          trackIndex: i,
-          totalTracks: tracks.length
-        })
-      } catch (err: any) {
-        if (err.message === 'Cancelled') {
-          deletePartialFiles(dir, `${trackNum}. ${trackName}`)
-          event.sender.send('download:progress', {
-            id: trackDownloadId,
-            type: 'album',
-            progress: 0,
-            status: 'cancelled',
-            trackIndex: i,
-            totalTracks: tracks.length
-          })
-          // Cancel remaining tracks
-          for (let j = i + 1; j < tracks.length; j++) {
-            const nextTrack = tracks[j]
-            const nextDownloadId = `${albumDownloadId}:${nextTrack.videoId}`
+          return downloadTrackAudio(trackDownloadId, track.videoId, basePath, (progress) => {
             event.sender.send('download:progress', {
-              id: nextDownloadId,
+              id: trackDownloadId,
               type: 'album',
-              progress: 0,
-              status: 'cancelled',
-              trackIndex: j,
+              progress,
+              status: 'downloading',
+              trackIndex: i,
+              totalTracks: tracks.length,
+              trackName: track.name
+            })
+          }).then(() => {
+            if (cancelled) return
+            const actualMp3 = findActualMp3(dir, `${trackNum}. ${trackName}`)
+            const finalBasePath = actualMp3 ? actualMp3.replace('.mp3', '') : basePath
+            writeSidecarJson(finalBasePath, {
+              ...track,
+              artist: album.artist || track.artist,
+              album: { albumId: album.albumId || '', name: album.name }
+            }, {
+              container: `${artistDir} - ${albumDir}`,
+              containerType: 'album',
+              keepThumbnail: true
+            })
+            saveLyricsForTrack(
+              (actualMp3 || basePath + '.mp3'),
+              track.name,
+              (album.artist || track.artist)?.name || 'Unknown Artist',
+              album.name || null,
+              track.duration || null
+            )
+            event.sender.send('download:progress', {
+              id: trackDownloadId,
+              type: 'album',
+              trackName: track.name,
+              progress: 100,
+              status: 'done',
+              trackIndex: i,
               totalTracks: tracks.length
             })
-          }
-          return { success: false, error: 'Cancelled' }
-        }
+          }).catch((err: any) => {
+            if (cancelled || err.message === 'Cancelled') {
+              deletePartialFiles(dir, `${trackNum}. ${trackName}`)
+              event.sender.send('download:progress', {
+                id: trackDownloadId,
+                type: 'album',
+                progress: 0,
+                status: 'cancelled',
+                trackIndex: i,
+                totalTracks: tracks.length
+              })
+            } else {
+              event.sender.send('download:progress', {
+                id: trackDownloadId,
+                type: 'album',
+                progress: 0,
+                status: 'error',
+                error: err.message,
+                trackIndex: i,
+                totalTracks: tracks.length
+              })
+            }
+          })
+        })
+        await Promise.allSettled(promises)
+      }
+    } finally {
+      ipcMain.removeListener('download:cancel', cancelHandler)
+    }
+
+    if (cancelled) {
+      // Cancel remaining tracks that weren't started
+      for (let j = 0; j < tracks.length; j++) {
+        const nextTrack = tracks[j]
+        const nextDownloadId = `${albumDownloadId}:${nextTrack.videoId}`
         event.sender.send('download:progress', {
-          id: trackDownloadId,
+          id: nextDownloadId,
           type: 'album',
           progress: 0,
-          status: 'error',
-          error: err.message,
-          trackIndex: i,
+          status: 'cancelled',
+          trackIndex: j,
           totalTracks: tracks.length
         })
       }
+      return { success: false, error: 'Cancelled' }
     }
 
     event.sender.send('download:progress', {
@@ -479,94 +495,108 @@ export function registerDownloadIPC(mainWindow: BrowserWindow | null): void {
     const playlistDir = sanitize(playlist.name)
     const dir = join(BASE_DIR, playlistDir)
     const playlistDownloadId = `playlist:${playlist.playlistId}`
+    const settings = loadSettings()
+    const maxConcurrent = typeof settings.maxConcurrentDownloads === 'number' ? settings.maxConcurrentDownloads : 1
 
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
 
-    for (let i = 0; i < tracks.length; i++) {
-      const track = tracks[i]
-      const trackNum = String(i + 1).padStart(2, '0')
-      const trackName = sanitize(track.name)
-      const basePath = join(dir, `${trackNum}. ${trackName}`)
-      const trackDownloadId = `${playlistDownloadId}:${track.videoId}`
+    let cancelled = false
+    const cancelHandler = (_event: any, downloadId: string) => {
+      if (downloadId === playlistDownloadId || downloadId.startsWith(playlistDownloadId + ':')) {
+        cancelled = true
+      }
+    }
+    ipcMain.on('download:cancel', cancelHandler)
 
-      try {
-        await downloadTrackAudio(trackDownloadId, track.videoId, basePath, (progress) => {
-          event.sender.send('download:progress', {
-            id: trackDownloadId,
-            type: 'playlist',
-            progress,
-            status: 'downloading',
-            trackIndex: i,
-            totalTracks: tracks.length,
-            trackName: track.name
-          })
-        })
+    try {
+      for (let batchStart = 0; batchStart < tracks.length && !cancelled; batchStart += maxConcurrent) {
+        const batch = tracks.slice(batchStart, batchStart + maxConcurrent)
+        const promises = batch.map((track, batchIdx) => {
+          const i = batchStart + batchIdx
+          const trackNum = String(i + 1).padStart(2, '0')
+          const trackName = sanitize(track.name)
+          const basePath = join(dir, `${trackNum}. ${trackName}`)
+          const trackDownloadId = `${playlistDownloadId}:${track.videoId}`
 
-        const actualMp3 = findActualMp3(dir, `${trackNum}. ${trackName}`)
-        const finalBasePath = actualMp3 ? actualMp3.replace('.mp3', '') : basePath
-
-        // Keep thumbnail for playlist tracks so the playlist container has a local cover art
-        writeSidecarJson(finalBasePath, track, {
-          container: playlistDir,
-          containerType: 'playlist',
-          keepThumbnail: true
-        })
-
-        // Save lyrics for offline display (non-blocking)
-        saveLyricsForTrack(
-          (actualMp3 || basePath + '.mp3'),
-          track.name,
-          track.artist?.name || 'Unknown Artist',
-          track.album?.name || null,
-          track.duration || null
-        )
-
-        // Mark this individual track as done
-        event.sender.send('download:progress', {
-          id: trackDownloadId,
-          type: 'playlist',
-          trackName: track.name,
-          progress: 100,
-          status: 'done',
-          trackIndex: i,
-          totalTracks: tracks.length
-        })
-      } catch (err: any) {
-        if (err.message === 'Cancelled') {
-          deletePartialFiles(dir, `${trackNum}. ${trackName}`)
-          event.sender.send('download:progress', {
-            id: trackDownloadId,
-            type: 'playlist',
-            progress: 0,
-            status: 'cancelled',
-            trackIndex: i,
-            totalTracks: tracks.length
-          })
-          // Cancel remaining tracks
-          for (let j = i + 1; j < tracks.length; j++) {
-            const nextTrack = tracks[j]
-            const nextDownloadId = `${playlistDownloadId}:${nextTrack.videoId}`
+          return downloadTrackAudio(trackDownloadId, track.videoId, basePath, (progress) => {
             event.sender.send('download:progress', {
-              id: nextDownloadId,
+              id: trackDownloadId,
               type: 'playlist',
-              progress: 0,
-              status: 'cancelled',
-              trackIndex: j,
+              progress,
+              status: 'downloading',
+              trackIndex: i,
+              totalTracks: tracks.length,
+              trackName: track.name
+            })
+          }).then(() => {
+            if (cancelled) return
+            const actualMp3 = findActualMp3(dir, `${trackNum}. ${trackName}`)
+            const finalBasePath = actualMp3 ? actualMp3.replace('.mp3', '') : basePath
+            writeSidecarJson(finalBasePath, track, {
+              container: playlistDir,
+              containerType: 'playlist',
+              keepThumbnail: true
+            })
+            saveLyricsForTrack(
+              (actualMp3 || basePath + '.mp3'),
+              track.name,
+              track.artist?.name || 'Unknown Artist',
+              track.album?.name || null,
+              track.duration || null
+            )
+            event.sender.send('download:progress', {
+              id: trackDownloadId,
+              type: 'playlist',
+              trackName: track.name,
+              progress: 100,
+              status: 'done',
+              trackIndex: i,
               totalTracks: tracks.length
             })
-          }
-          return { success: false, error: 'Cancelled' }
-        }
+          }).catch((err: any) => {
+            if (cancelled || err.message === 'Cancelled') {
+              deletePartialFiles(dir, `${trackNum}. ${trackName}`)
+              event.sender.send('download:progress', {
+                id: trackDownloadId,
+                type: 'playlist',
+                progress: 0,
+                status: 'cancelled',
+                trackIndex: i,
+                totalTracks: tracks.length
+              })
+            } else {
+              event.sender.send('download:progress', {
+                id: trackDownloadId,
+                type: 'playlist',
+                progress: 0,
+                status: 'error',
+                error: err.message,
+                trackIndex: i,
+                totalTracks: tracks.length
+              })
+            }
+          })
+        })
+        await Promise.allSettled(promises)
+      }
+    } finally {
+      ipcMain.removeListener('download:cancel', cancelHandler)
+    }
+
+    if (cancelled) {
+      for (let j = 0; j < tracks.length; j++) {
+        const nextTrack = tracks[j]
+        const nextDownloadId = `${playlistDownloadId}:${nextTrack.videoId}`
         event.sender.send('download:progress', {
-          id: trackDownloadId,
+          id: nextDownloadId,
           type: 'playlist',
           progress: 0,
-          status: 'error',
-          error: err.message,
-          trackIndex: i,
+          status: 'cancelled',
+          trackIndex: j,
           totalTracks: tracks.length
         })
       }
+      return { success: false, error: 'Cancelled' }
     }
 
     event.sender.send('download:progress', {
