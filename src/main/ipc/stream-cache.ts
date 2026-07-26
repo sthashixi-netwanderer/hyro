@@ -91,7 +91,7 @@ function preCacheTrack(videoId: string): Promise<void> {
     '-x',
     '--audio-format', 'mp3',
     '--audio-quality', '64K',
-    '--extractor-args', 'youtube:player_client=android_vr,ios,android,web',
+    '--extractor-args', 'youtube:player_client=web',
     '--no-playlist',
     '--no-write-thumbnail',
     '--no-write-info-json',

@@ -185,7 +185,7 @@ function downloadTrackAudio(
     '--embed-thumbnail',
     '--write-thumbnail',
     '--convert-thumbnails', 'jpg',
-    '--extractor-args', 'youtube:player_client=android_vr,ios,android,web',
+    '--extractor-args', 'youtube:player_client=web',
     '--newline',
     '-o', outputPath,
     url
