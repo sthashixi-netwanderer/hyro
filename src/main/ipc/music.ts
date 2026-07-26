@@ -1075,7 +1075,7 @@ export function registerMusicIPC(): void {
     const MAX_RETRIES = 2
     const RETRY_DELAY_MS = 2000
 
-    const args = ['-f', 'bestaudio', '--extractor-args', 'youtube:player_client=web', '--get-url', url]
+    const args = ['-f', 'bestaudio', '--extractor-args', 'youtube:player_client=web,web_creator', '--get-url', url]
     const cookieBrowser = getCookieBrowser()
     if (cookieBrowser) {
       args.push('--cookies-from-browser', cookieBrowser)
