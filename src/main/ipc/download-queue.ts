@@ -249,7 +249,6 @@ class DownloadQueueManager {
       '-x', '--audio-format', 'mp3',
       '--add-metadata', '--embed-thumbnail', '--write-thumbnail',
       '--convert-thumbnails', 'jpg',
-      '--extractor-args', 'youtube:player_client=web,web_creator',
       '--newline', '-o', outputPath, url
     ]
     const cookieBrowser = getCookieBrowser()
