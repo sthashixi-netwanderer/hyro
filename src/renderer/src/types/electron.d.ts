@@ -109,6 +109,18 @@ interface ElectronAPI {
     message: string
     error?: string
   }>
+
+  // Update
+  checkForUpdate: () => Promise<{
+    available: boolean
+    version?: string
+    body?: string
+    htmlUrl?: string
+  }>
+  getAppVersion: () => Promise<string>
+  downloadUpdate: (htmlUrl: string) => Promise<{ success: boolean; opened?: boolean; error?: string }>
+  onUpdateAvailable: (callback: (data: { available: boolean; version?: string; body?: string; htmlUrl?: string }) => void) => () => void
+  onUpdateDownloadProgress: (callback: (progress: number) => void) => () => void
 }
 
 declare interface Window {

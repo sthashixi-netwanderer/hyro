@@ -1,5 +1,4 @@
 import { logger } from '../logger'
-import { logger } from '../logger'
 import { ipcMain, app } from 'electron'
 import { join } from 'path'
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync } from 'fs'

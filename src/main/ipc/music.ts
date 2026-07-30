@@ -1,8 +1,9 @@
 import { ipcMain } from 'electron'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
+import { platform } from 'os'
 import YTMusic from 'ytmusic-api'
-import { getGroqApiKey, getCookieBrowser } from './settings'
+import { getGroqApiKey, getYtDlpCookieBrowser } from './settings'
 import { isVideoTitle } from '../../shared/video-keywords'
 import type { HomeSection } from '../../shared/types'
 import { readLocalLyrics } from './download'
@@ -49,6 +50,11 @@ const execFileAsync = promisify(execFile)
 
 let ytmusic: YTMusic | null = null
 let musixmatchToken: string | null = null
+
+// Persistent cookie state for yt-dlp stream URL fallback — once cookies fail
+// with v11 decryption error, skip cookies for all subsequent requests.
+// On Linux, Chromium v11 cookie encryption always fails in Electron's sandbox.
+let streamYtdlpCookiesDisabled = platform() === 'linux'
 
 export async function initializeYTMusic(): Promise<void> {
   // ytmusic-api is now the fallback — initialize in background (non-blocking)
@@ -1070,41 +1076,52 @@ export function registerMusicIPC(): void {
       logger.warn(`[stream] InnerTube player failed for ${videoId} (after retry), falling back to yt-dlp:`, err)
     }
 
-    // Fallback: yt-dlp CLI
+    // Fallback: yt-dlp CLI with multi-client support and cookie error handling
     const url = `https://www.youtube.com/watch?v=${videoId}`
     const MAX_RETRIES = 2
     const RETRY_DELAY_MS = 2000
+    const hasCookies = !!getYtDlpCookieBrowser()
 
-    const args = ['-f', 'bestaudio', '--get-url', url]
-    const cookieBrowser = getCookieBrowser()
-    if (cookieBrowser) {
-      args.push('--cookies-from-browser', cookieBrowser)
-    }
+    const STREAM_CLIENTS = ['android_vr', 'web_creator,mweb', 'web']
 
-    const cmdStr = `${getYtDlpBinaryPath()} ${args.map(a => `"${a}"`).join(' ')}`
-    logger.log(`[stream] Resolving stream URL via yt-dlp for ${videoId}...`)
-    logger.log(`[stream] Command: ${cmdStr}`)
+    for (const client of STREAM_CLIENTS) {
+      const useCookies = hasCookies && !streamYtdlpCookiesDisabled
+      const args = ['-f', 'bestaudio', '--extractor-args', `youtube:player_client=${client}`, '--get-url', url]
+      if (useCookies) {
+        const ytDlpCookie = getYtDlpCookieBrowser()
+        if (ytDlpCookie) args.push('--cookies-from-browser', ytDlpCookie)
+      }
 
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      try {
-        const { stdout } = await execFileAsync(getYtDlpBinaryPath(), args, { timeout: 30000 })
-        const streamUrl = stdout.trim()
-        if (!streamUrl) throw new Error('Empty stream URL from yt-dlp')
-        if (!streamUrl.startsWith('http://') && !streamUrl.startsWith('https://')) {
-          throw new Error(`Invalid stream URL format: ${streamUrl.slice(0, 100)}`)
+      logger.log(`[stream] Resolving stream URL via yt-dlp (client=${client}, cookies=${useCookies}) for ${videoId}...`)
+
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        try {
+          const { stdout } = await execFileAsync(getYtDlpBinaryPath(), args, { timeout: 30000 })
+          const streamUrl = stdout.trim()
+          if (!streamUrl) throw new Error('Empty stream URL from yt-dlp')
+          if (!streamUrl.startsWith('http://') && !streamUrl.startsWith('https://')) {
+            throw new Error(`Invalid stream URL format: ${streamUrl.slice(0, 100)}`)
+          }
+          logger.log(`[stream] Resolved stream URL via yt-dlp for ${videoId}`)
+          return streamUrl
+        } catch (err: any) {
+          if ((err as any).killed || err.message?.includes('killed')) {
+            throw new Error('Cancelled')
+          }
+          const isCookieError = hasCookies && err.message?.includes('cannot decrypt v11 cookies')
+          if (isCookieError && !streamYtdlpCookiesDisabled) {
+            streamYtdlpCookiesDisabled = true
+            logger.warn(`[stream] Cookie decryption failed for ${videoId}, retrying without cookies...`)
+            break // break retry loop, will retry with next client without cookies
+          }
+          if (attempt === MAX_RETRIES) {
+            logger.warn(`[stream] yt-dlp attempt ${attempt + 1} failed for ${videoId} (client=${client}): ${err.message?.slice(0, 200)}`)
+          } else {
+            await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS))
+          }
         }
-        logger.log(`[stream] Resolved stream URL via yt-dlp for ${videoId}`)
-        return streamUrl
-      } catch (err: any) {
-        const isLastAttempt = attempt === MAX_RETRIES
-        if (isLastAttempt) {
-          logger.error(`[stream] FAILED for ${videoId} after ${attempt + 1} attempt(s): ${err.message}`)
-          throw new Error(`Failed to get stream URL: ${err.message}`)
-        }
-        logger.warn(`[stream] Attempt ${attempt + 1} failed for ${videoId}, retrying in ${RETRY_DELAY_MS}ms: ${err.message}`)
-        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS))
       }
     }
-    throw new Error('Failed to get stream URL: exhausted retries')
+    throw new Error('Failed to get stream URL: all yt-dlp client combinations exhausted')
   })
 }

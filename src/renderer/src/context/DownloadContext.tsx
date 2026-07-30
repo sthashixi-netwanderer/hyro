@@ -39,6 +39,7 @@ interface DownloadContextType {
   downloadAlbum: (album: any, tracks: Track[]) => void
   downloadPlaylist: (playlist: any, tracks: Track[]) => void
   cancelDownload: (id: string) => void
+  cancelContainerDownloads: (containerId: string) => void
   retryDownload: (item: DownloadItem) => void
   dismissCompleted: () => void
   dismissDownload: (id: string) => void
@@ -163,8 +164,19 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       })
 
       if (data.status === 'done' || data.status === 'error' || data.status === 'cancelled') {
-        activeCountRef.current = Math.max(0, activeCountRef.current - 1)
-        processQueue()
+        // Only decrement activeCount for container-level completion events, not for individual tracks within containers.
+        // Individual track events have IDs like: "album:albumId:videoId" or "playlist:playlistId:videoId"
+        // Container events have IDs like: "album:albumId" or "playlist:playlistId" or just "videoId" for single tracks
+        const isContainerEvent = (id: string) => {
+          // Count colons: container events have exactly 1 colon (album:id or playlist:id)
+          // Track events within containers have 2 colons (album:id:videoId or playlist:id:videoId)
+          return (id.match(/:/g) || []).length === 1 || !id.includes(':')
+        }
+        
+        if (isContainerEvent(data.id)) {
+          activeCountRef.current = Math.max(0, activeCountRef.current - 1)
+          processQueue()
+        }
       }
 
       if (data.status === 'done') {
@@ -310,6 +322,21 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     ))
   }, [])
 
+  const cancelContainerDownloads = useCallback(async (containerId: string) => {
+    // Cancel the container-level download and all its individual track downloads
+    queueRef.current = queueRef.current.filter(q => q.id !== containerId && !q.id.startsWith(containerId + ':'))
+    await window.api.cancelDownload(containerId)
+    setDownloads(prev => prev.map(d => {
+      if (d.id === containerId || d.id.startsWith(containerId + ':')) {
+        if (d.status === 'downloading' || d.status === 'queued') {
+          window.api.cancelDownload(d.id).catch(() => {})
+          return { ...d, status: 'cancelled' as const, progress: 0 }
+        }
+      }
+      return d
+    }))
+  }, [])
+
   const retryDownload = useCallback(async (item: DownloadItem) => {
     if (item.type === 'track' && item.track) {
       setDownloads(prev => prev.filter(d => d.id !== item.id))
@@ -362,6 +389,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       downloadAlbum,
       downloadPlaylist,
       cancelDownload,
+      cancelContainerDownloads,
       retryDownload,
       dismissCompleted,
       dismissDownload,

@@ -25,6 +25,7 @@ import { registerYtDlpIPC } from './ipc/ytdlp'
 import { registerDataUsageIPC } from './ipc/data-usage'
 import { registerPlaybackStateIPC } from './ipc/playback-state'
 import { registerImageCacheIPC, IMAGE_CACHE_DIR } from './ipc/image-cache'
+import { registerUpdateIPC, stopUpdateChecks } from './ipc/update'
 import dns from 'node:dns'
 
 // Set DNS lookup order to prefer IPv4 over IPv6.
@@ -313,7 +314,7 @@ app.whenReady().then(async () => {
   registerMusicIPC()
   registerArtistCacheIPC(fetchArtistData)
   registerLibraryIPC()
-  registerDownloadQueueIPC()
+  registerDownloadQueueIPC(mainWindow)
   registerStreamCacheIPC()
   registerHistoryIPC()
   registerFavoritesIPC()
@@ -322,6 +323,7 @@ app.whenReady().then(async () => {
   registerDataUsageIPC()
   registerPlaybackStateIPC()
   registerImageCacheIPC()
+  registerUpdateIPC()
 
   createWindow()
   createTray()
@@ -342,4 +344,5 @@ app.on('before-quit', () => {
   isQuitting = true
   disablePowerSaveBlocker()
   clearStreamCache()
+  stopUpdateChecks()
 })

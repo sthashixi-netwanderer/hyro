@@ -53,6 +53,31 @@ export function getCookieBrowser(): string {
   return loadSettings().cookieBrowser
 }
 
+/**
+ * Returns the cookie browser string with a keyring fallback suffix for yt-dlp.
+ *
+ * On Linux, Chromium-based browsers encrypt cookies with AES-CBC using a key
+ * stored in GNOME Keyring / Secret Service. The keyring is often unavailable
+ * (headless sessions, D-Bus disconnects) or returns the wrong key (Electron
+ * apps creating duplicate "Chromium Safe Storage" entries), causing:
+ *   "failed to decrypt cookie (AES-CBC) because UTF-8 decoding failed"
+ *
+ * The `+basictext` suffix tells yt-dlp to prefer the BASIC_TEXT keyring
+ * (unencrypted cookies stored as-is), bypassing the keyring entirely.
+ * This is supported by yt-dlp for all Chromium-based browsers.
+ *
+ * Returns null if cookies are disabled or unavailable.
+ */
+export function getYtDlpCookieBrowser(): string | null {
+  const browser = loadSettings().cookieBrowser
+  if (!browser) return null
+  const chromiumBrowsers = ['chrome', 'chromium', 'brave', 'edge', 'opera', 'vivaldi']
+  if (chromiumBrowsers.includes(browser)) {
+    return `${browser}+basictext`
+  }
+  return browser
+}
+
 export function registerSettingsIPC(): void {
   ipcMain.handle('settings:get', async () => {
     return loadSettings()

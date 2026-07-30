@@ -1,10 +1,10 @@
 import { logger } from '../logger'
-import { logger } from '../logger'
 import { ipcMain, app } from 'electron'
 import { execFile, type ChildProcess } from 'child_process'
 import { join } from 'path'
 import { existsSync, mkdirSync, rmSync, readdirSync, statSync } from 'fs'
-import { getCookieBrowser } from './settings'
+import { platform } from 'os'
+import { getYtDlpCookieBrowser } from './settings'
 import { recordDataUsage } from './data-usage'
 import { getYtDlpBinaryPath } from './ytdlp-path'
 
@@ -13,6 +13,12 @@ const CACHE_DIR = join(app.getPath('userData'), 'stream-cache')
 // Track active pre-cache processes by videoId for cancellation
 const activeProcesses = new Map<string, ChildProcess>()
 let preCacheRequestVersion = 0
+
+// Persistent cookie state — once cookies fail with v11 decryption error,
+// skip cookies for all subsequent tracks in this session.
+// On Linux, Chromium v11 cookie encryption always fails in Electron's sandbox,
+// so skip cookies entirely from the start.
+let cookiesDisabled = platform() === 'linux'
 
 function ensureCacheDir(): void {
   if (!existsSync(CACHE_DIR)) {
@@ -68,30 +74,44 @@ function cleanupStaleFiles(): void {
 }
 
 /**
- * Pre-cache a single track to the stream cache directory.
- * Uses lightweight yt-dlp args (no metadata, no thumbnails, low quality) for speed.
+ * Run yt-dlp with the given args, resolving on success or rejecting on failure.
+ * Cleans up the active process entry when done.
  */
-function preCacheTrack(videoId: string): Promise<void> {
-  // Skip if already cached
-  if (getCachedPath(videoId)) {
-    logger.log(`[stream-cache] ${videoId} already cached, skipping`)
-    return Promise.resolve()
-  }
+function runYtDlp(
+  videoId: string,
+  args: string[],
+  timeoutMs: number
+): Promise<{ ok: boolean; stderr: string }> {
+  return new Promise((resolve) => {
+    const proc = execFile(getYtDlpBinaryPath(), args, { timeout: timeoutMs }, (err, _stdout, stderr) => {
+      activeProcesses.delete(videoId)
+      if (err) {
+        if ((err as any).killed || err.message.includes('killed')) {
+          resolve({ ok: false, stderr: '' }) // cancelled
+        } else {
+          resolve({ ok: false, stderr: stderr || err.message })
+        }
+      } else {
+        resolve({ ok: true, stderr: '' })
+      }
+    })
+    activeProcesses.set(videoId, proc)
+  })
+}
 
-  // Skip if already being downloaded
-  if (activeProcesses.has(videoId)) {
-    logger.log(`[stream-cache] ${videoId} already being downloaded, skipping`)
-    return Promise.resolve()
-  }
-
+/**
+ * Build the base yt-dlp args for stream-cache pre-caching.
+ */
+function buildCacheArgs(videoId: string, playerClient: string, withCookies: boolean): string[] {
   const url = `https://www.youtube.com/watch?v=${videoId}`
   const outputPath = join(CACHE_DIR, `${videoId}.%(ext)s`)
 
   const args = [
+    '-f', 'bestaudio',
     '-x',
     '--audio-format', 'mp3',
     '--audio-quality', '64K',
-    '--extractor-args', 'youtube:player_client=web',
+    '--extractor-args', `youtube:player_client=${playerClient}`,
     '--no-playlist',
     '--no-write-thumbnail',
     '--no-write-info-json',
@@ -102,45 +122,98 @@ function preCacheTrack(videoId: string): Promise<void> {
     url
   ]
 
-  const cookieBrowser = getCookieBrowser()
-  if (cookieBrowser) {
-    args.push('--cookies-from-browser', cookieBrowser)
+  if (withCookies) {
+    const ytDlpCookie = getYtDlpCookieBrowser()
+    if (ytDlpCookie) {
+      args.push('--cookies-from-browser', ytDlpCookie)
+    }
   }
 
-  const cmdStr = `${getYtDlpBinaryPath()} ${args.map(a => `"${a}"`).join(' ')}`
-  logger.log(`[stream-cache] Pre-caching ${videoId}...`)
-  logger.log(`[stream-cache] Command: ${cmdStr}`)
+  return args
+}
 
-  return new Promise((resolve, reject) => {
-    const proc = execFile(getYtDlpBinaryPath(), args, { timeout: 120000 }, (err) => {
-      activeProcesses.delete(videoId)
-      if (err) {
-        if ((err as any).killed || err.message.includes('killed')) {
-          // Killed = cancelled, not an error
-          logger.log(`[stream-cache] ${videoId} pre-cache cancelled (superseded)`)
-          resolve()
-        } else {
-          logger.error(`[stream-cache] Pre-cache FAILED for ${videoId}: ${err.message}`)
-          resolve() // Don't reject - pre-cache failure is non-fatal
+/**
+ * Player client fallback chain for pre-caching.
+ * Ordered from most reliable to least; each step also drops cookies if the
+ * previous step hit a cookie decryption error.
+ *
+ * - android_vr: No PO Token or cookies needed, returns direct audio URLs.
+ * - web_creator,mweb: Legacy fallback that needs cookies for PO Token derivation.
+ * - web: Last resort (needs cookies for audio formats)
+ */
+const PLAYER_CLIENTS = ['android_vr', 'web_creator,mweb', 'web']
+
+/**
+ * Pre-cache a single track to the stream cache directory.
+ * Uses lightweight yt-dlp args (no metadata, no thumbnails, low quality) for speed.
+ * Tries multiple player client / cookie combinations on failure.
+ */
+async function preCacheTrack(videoId: string): Promise<void> {
+  // Skip if already cached
+  if (getCachedPath(videoId)) {
+    logger.log(`[stream-cache] ${videoId} already cached, skipping`)
+    return
+  }
+
+  // Skip if already being downloaded
+  if (activeProcesses.has(videoId)) {
+    logger.log(`[stream-cache] ${videoId} already being downloaded, skipping`)
+    return
+  }
+
+  const hasCookies = !!getYtDlpCookieBrowser()
+  logger.log(`[stream-cache] Pre-caching ${videoId}...`)
+
+  for (let i = 0; i < PLAYER_CLIENTS.length; i++) {
+    const client = PLAYER_CLIENTS[i]
+    const useCookies = hasCookies && !cookiesDisabled
+    const args = buildCacheArgs(videoId, client, useCookies)
+    logger.log(`[stream-cache] Trying player_client=${client} cookies=${useCookies}`)
+
+    const result = await runYtDlp(videoId, args, 120000)
+
+    if (result.ok) {
+      logger.log(`[stream-cache] Pre-cached ${videoId}`)
+      try {
+        const cachedFile = getCachedPath(videoId)
+        if (cachedFile && existsSync(cachedFile)) {
+          const stat = statSync(cachedFile)
+          recordDataUsage(stat.size, 'cache')
         }
-      } else {
-        logger.log(`[stream-cache] Pre-cached ${videoId}`)
+      } catch { /* Ignore stat failure */ }
+      return
+    }
+
+    // If cancelled, stop immediately
+    if (!result.stderr) return
+
+    const isCookieError = hasCookies && result.stderr.includes('cannot decrypt v11 cookies')
+    if (isCookieError) {
+      cookiesDisabled = true
+      logger.warn(`[stream-cache] Cookie decryption failed for ${videoId} with client ${client}, retrying without cookies...`)
+      // Retry this same client without cookies
+      const noCookieArgs = buildCacheArgs(videoId, client, false)
+      const retry = await runYtDlp(videoId, noCookieArgs, 120000)
+      if (retry.ok) {
+        logger.log(`[stream-cache] Pre-cached ${videoId} (no cookies, client=${client})`)
         try {
           const cachedFile = getCachedPath(videoId)
           if (cachedFile && existsSync(cachedFile)) {
             const stat = statSync(cachedFile)
             recordDataUsage(stat.size, 'cache')
           }
-        } catch {
-          // Ignore stat failure
-        }
-        resolve()
+        } catch { /* Ignore stat failure */ }
+        return
       }
-    })
+      logger.warn(`[stream-cache] Failed for ${videoId} with client=${client} (no cookies): ${retry.stderr.slice(0, 200)}`)
+    } else {
+      logger.warn(`[stream-cache] Failed for ${videoId} with client=${client}: ${result.stderr.slice(0, 200)}`)
+    }
+  }
 
-    activeProcesses.set(videoId, proc)
-  })
+  logger.error(`[stream-cache] Pre-cache FAILED for ${videoId} (all client combos exhausted)`)
 }
+
 
 /**
  * Pre-cache multiple tracks sequentially.
@@ -201,6 +274,7 @@ function cancelPreCache(videoIds: string[]): void {
  */
 function clearCache(): void {
   preCacheRequestVersion++
+  cookiesDisabled = false
   killAllProcesses()
 
   try {

@@ -2,11 +2,12 @@ import { logger } from '../logger'
 import { ipcMain, BrowserWindow, app } from 'electron'
 import { execFile, type ChildProcess } from 'child_process'
 import { join, relative, dirname } from 'path'
-import { homedir } from 'os'
+import { homedir, platform } from 'os'
 import { existsSync, mkdirSync, writeFileSync, readdirSync, unlinkSync, readFileSync } from 'fs'
 import { addToRegistry } from './library'
-import { getCookieBrowser, loadSettings } from './settings'
+import { getYtDlpCookieBrowser, loadSettings } from './settings'
 import { getYtDlpBinaryPath } from './ytdlp-path'
+import { bestThumbnailUrl } from '../../shared/utils'
 
 const BASE_DIR = join(homedir(), 'Downloads', 'Hyro')
 const CONFIG_DIR = app.getPath('userData')
@@ -153,8 +154,38 @@ export function readLocalLyrics(mp3Path: string): { plain: string[]; synced: { t
   return null
 }
 
+/**
+ * Downloads the album/playlist cover art and saves it as cover.jpg in the container directory.
+ * Returns the cover file path, or null if download failed.
+ */
+async function downloadContainerCover(dir: string, thumbnails: any[]): Promise<string | null> {
+  const coverUrl = bestThumbnailUrl(thumbnails)
+  if (!coverUrl) return null
+  try {
+    const response = await fetch(coverUrl)
+    if (!response.ok) return null
+    const buffer = Buffer.from(await response.arrayBuffer())
+    const coverPath = join(dir, 'cover.jpg')
+    writeFileSync(coverPath, buffer)
+    return coverPath
+  } catch {
+    return null
+  }
+}
+
 // Track active yt-dlp processes by download ID so we can cancel them
 const activeProcesses = new Map<string, ChildProcess>()
+
+// Persistent cookie state — once cookies fail with v11 decryption error,
+// skip cookies for all subsequent downloads in this session.
+// On Linux, Chromium v11 cookie encryption always fails in Electron's sandbox.
+let cookiesDisabled = platform() === 'linux'
+
+// Player client fallback chain for downloads (most reliable → least)
+// android_vr: No PO Token or cookies needed, returns direct audio URLs.
+// web_creator,mweb: Legacy fallback that needs cookies for PO Token derivation.
+// web: Last resort, often returns no audio formats.
+const DOWNLOAD_PLAYER_CLIENTS = ['android_vr', 'web_creator,mweb', 'web']
 
 function sanitize(name: string): string {
   return name.replace(/[\/\\:*?"<>|()]/g, '').replace(/\s+/g, ' ').trim()
@@ -167,8 +198,8 @@ function deleteFileSafe(filePath: string): void {
 }
 
 /**
- * Downloads a track with yt-dlp. Returns an object with the ChildProcess
- * so callers can register a cancel callback.
+ * Downloads a track with yt-dlp. Tries multiple player clients and
+ * falls back to no-cookies when cookie decryption fails.
  */
 function downloadTrackAudio(
   downloadId: string,
@@ -178,60 +209,101 @@ function downloadTrackAudio(
 ): Promise<void> {
   const url = `https://www.youtube.com/watch?v=${videoId}`
   const outputPath = basePath + '.%(ext)s'
-  const args = [
-    '-x',
-    '--audio-format', 'mp3',
-    '--add-metadata',
-    '--embed-thumbnail',
-    '--write-thumbnail',
-    '--convert-thumbnails', 'jpg',
-    '--newline',
-    '-o', outputPath,
-    url
-  ]
+  const hasCookies = !!getYtDlpCookieBrowser()
 
-  const cookieBrowser = getCookieBrowser()
-  if (cookieBrowser) {
-    args.push('--cookies-from-browser', cookieBrowser)
+  async function tryDownload(client: string, withCookies: boolean): Promise<void> {
+    const args = [
+      '-f', 'bestaudio',
+      '-x',
+      '--audio-format', 'mp3',
+      '--add-metadata',
+      '--embed-thumbnail',
+      '--write-thumbnail',
+      '--convert-thumbnails', 'jpg',
+      '--extractor-args', `youtube:player_client=${client}`,
+      '--newline',
+      '-o', outputPath,
+      url
+    ]
+
+    if (withCookies && !cookiesDisabled) {
+      const ytDlpCookie = getYtDlpCookieBrowser()
+      if (ytDlpCookie) {
+        args.push('--cookies-from-browser', ytDlpCookie)
+      }
+    }
+
+    return new Promise((resolve, reject) => {
+      const proc = execFile(getYtDlpBinaryPath(), args, { timeout: 300000 }, (err, _stdout, stderr) => {
+        activeProcesses.delete(downloadId)
+        if (err) {
+          if ((err as any).killed || err.message.includes('killed')) {
+            reject(new Error('Cancelled'))
+          } else {
+            reject(new Error(stderr || err.message))
+          }
+        } else {
+          resolve()
+        }
+      })
+
+      activeProcesses.set(downloadId, proc)
+
+      proc.stdout?.on('data', (data: string) => {
+        const lines = data.toString().split('\n')
+        for (const line of lines) {
+          const match = line.match(/(\d+\.?\d*)%/)
+          if (match) {
+            onProgress(parseFloat(match[1]))
+          }
+        }
+      })
+    })
   }
 
-  return new Promise((resolve, reject) => {
-    const proc = execFile(getYtDlpBinaryPath(), args, { timeout: 300000 }, (err) => {
-      activeProcesses.delete(downloadId)
-      if (err) {
-        // Check if it was killed (cancelled)
-        if ((err as any).killed || err.message.includes('killed')) {
-          reject(new Error('Cancelled'))
+  return (async () => {
+    for (let i = 0; i < DOWNLOAD_PLAYER_CLIENTS.length; i++) {
+      const client = DOWNLOAD_PLAYER_CLIENTS[i]
+      const useCookies = hasCookies && !cookiesDisabled
+
+      try {
+        await tryDownload(client, useCookies)
+        return // success
+      } catch (err: any) {
+        if (err.message === 'Cancelled') throw err
+
+        const isCookieError = hasCookies && err.message.includes('cannot decrypt v11 cookies')
+        if (isCookieError) {
+          cookiesDisabled = true
+          logger.warn(`[download] Cookie decryption failed for ${videoId} with client ${client}, retrying without cookies...`)
+          try {
+            await tryDownload(client, false)
+            return // success without cookies
+          } catch (retryErr: any) {
+            if (retryErr.message === 'Cancelled') throw retryErr
+            logger.warn(`[download] Failed for ${videoId} with client=${client} (no cookies): ${retryErr.message?.slice(0, 200)}`)
+          }
         } else {
-          logger.error('yt-dlp download error:', err.message)
-          reject(new Error(`Download failed: ${err.message}`))
-        }
-      } else {
-        resolve()
-      }
-    })
-
-    activeProcesses.set(downloadId, proc)
-
-    proc.stdout?.on('data', (data: string) => {
-      const lines = data.toString().split('\n')
-      for (const line of lines) {
-        const match = line.match(/(\d+\.?\d*)%/)
-        if (match) {
-          onProgress(parseFloat(match[1]))
+          logger.warn(`[download] Failed for ${videoId} with client=${client}: ${err.message?.slice(0, 200)}`)
         }
       }
-    })
-  })
+    }
+    throw new Error('Download failed: all player client combinations exhausted')
+  })()
 }
 
 function writeSidecarJson(
   basePath: string,
   track: any,
-  extra: { container?: string; containerType?: 'artist' | 'album' | 'playlist' | 'single'; keepThumbnail?: boolean }
+  extra: { container?: string; containerType?: 'artist' | 'album' | 'playlist' | 'single'; keepThumbnail?: boolean; containerCoverPath?: string | null }
 ): void {
   const mp3Path = basePath + '.mp3'
   const jpgPath = basePath + '.jpg'
+
+  // Use container cover art if available (album/playlist), otherwise use track's own thumbnail
+  const thumbnailPath = extra.containerCoverPath
+    ? extra.containerCoverPath
+    : (extra.keepThumbnail !== false && existsSync(jpgPath)) ? jpgPath : null
 
   const sidecar = {
     videoId: track.videoId,
@@ -242,7 +314,7 @@ function writeSidecarJson(
     thumbnails: track.thumbnails || [],
     type: track.type || 'SONG',
     filePath: mp3Path,
-    thumbnailPath: (extra.keepThumbnail !== false && existsSync(jpgPath)) ? jpgPath : null,
+    thumbnailPath,
     downloadedAt: new Date().toISOString(),
     container: extra.container || track.artist?.name || 'Unknown Artist',
     containerType: extra.containerType || 'single' as const
@@ -375,6 +447,9 @@ export function registerDownloadIPC(mainWindow: BrowserWindow | null): void {
 
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
 
+    // Download album cover art once for all tracks
+    const containerCoverPath = await downloadContainerCover(dir, album.thumbnails || [])
+
     let cancelled = false
     const cancelHandler = (_event: any, downloadId: string) => {
       if (downloadId === albumDownloadId || downloadId.startsWith(albumDownloadId + ':')) {
@@ -415,7 +490,8 @@ export function registerDownloadIPC(mainWindow: BrowserWindow | null): void {
             }, {
               container: `${artistDir} - ${albumDir}`,
               containerType: 'album',
-              keepThumbnail: true
+              keepThumbnail: true,
+              containerCoverPath
             })
             saveLyricsForTrack(
               (actualMp3 || basePath + '.mp3'),
@@ -499,6 +575,9 @@ export function registerDownloadIPC(mainWindow: BrowserWindow | null): void {
 
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
 
+    // Download playlist cover art once for all tracks
+    const containerCoverPath = await downloadContainerCover(dir, playlist.thumbnails || [])
+
     let cancelled = false
     const cancelHandler = (_event: any, downloadId: string) => {
       if (downloadId === playlistDownloadId || downloadId.startsWith(playlistDownloadId + ':')) {
@@ -534,7 +613,8 @@ export function registerDownloadIPC(mainWindow: BrowserWindow | null): void {
             writeSidecarJson(finalBasePath, track, {
               container: playlistDir,
               containerType: 'playlist',
-              keepThumbnail: true
+              keepThumbnail: true,
+              containerCoverPath
             })
             saveLyricsForTrack(
               (actualMp3 || basePath + '.mp3'),

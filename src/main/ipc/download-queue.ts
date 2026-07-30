@@ -5,7 +5,7 @@ import { join, relative, dirname } from 'path'
 import { homedir } from 'os'
 import { existsSync, mkdirSync, writeFileSync, readdirSync, unlinkSync, readFileSync } from 'fs'
 import { addToRegistry } from './library'
-import { getCookieBrowser, loadSettings } from './settings'
+import { getYtDlpCookieBrowser, loadSettings } from './settings'
 import { getYtDlpBinaryPath } from './ytdlp-path'
 
 const CONFIG_DIR = app.getPath('userData')
@@ -246,13 +246,15 @@ class DownloadQueueManager {
     const url = `https://www.youtube.com/watch?v=${task.track.videoId}`
     const outputPath = task.basePath + '.%(ext)s'
     const args = [
+      '-f', 'bestaudio',
       '-x', '--audio-format', 'mp3',
       '--add-metadata', '--embed-thumbnail', '--write-thumbnail',
       '--convert-thumbnails', 'jpg',
+      '--extractor-args', 'youtube:player_client=web,android',
       '--newline', '-o', outputPath, url
     ]
-    const cookieBrowser = getCookieBrowser()
-    if (cookieBrowser) args.push('--cookies-from-browser', cookieBrowser)
+    const ytDlpCookie = getYtDlpCookieBrowser()
+    if (ytDlpCookie) args.push('--cookies-from-browser', ytDlpCookie)
 
     return new Promise<void>((resolve) => {
       const proc = execFile(getYtDlpBinaryPath(), args, { timeout: 300000 }, (err) => {
@@ -423,5 +425,5 @@ export function registerDownloadQueueIPC(mainWindow: BrowserWindow | null): void
     return { success: true }
   }
 
-  return { handleTrackDownload, handleAlbumDownload, handlePlaylistDownload }
+
 }

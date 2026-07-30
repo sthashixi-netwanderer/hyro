@@ -99,6 +99,25 @@ const api = {
   checkYtDlpUpdate: () => ipcRenderer.invoke('ytdlp:checkUpdate'),
   updateYtDlp: () => ipcRenderer.invoke('ytdlp:update'),
 
+  // Update
+  checkForUpdate: () => ipcRenderer.invoke('update:check'),
+  getAppVersion: () => ipcRenderer.invoke('update:getVersion'),
+  downloadUpdate: (htmlUrl: string) => ipcRenderer.invoke('update:download', htmlUrl),
+  onUpdateAvailable: (callback: (data: { available: boolean; version?: string; body?: string; htmlUrl?: string }) => void) => {
+    const handler = (_event: any, data: any): void => callback(data)
+    ipcRenderer.on('update:available', handler)
+    return () => {
+      ipcRenderer.removeListener('update:available', handler)
+    }
+  },
+  onUpdateDownloadProgress: (callback: (progress: number) => void) => {
+    const handler = (_event: any, progress: number): void => callback(progress)
+    ipcRenderer.on('update:download-progress', handler)
+    return () => {
+      ipcRenderer.removeListener('update:download-progress', handler)
+    }
+  },
+
   // Shell
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
 

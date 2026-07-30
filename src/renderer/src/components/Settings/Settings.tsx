@@ -2,7 +2,7 @@ import { logger } from '../../utils/logger'
 import { useState, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Check, Key, ExternalLink, AlertCircle, Globe, Download, Loader2, RefreshCw, Activity, Palette, Minimize2, Layers } from 'lucide-react'
+import { Check, Key, ExternalLink, AlertCircle, Globe, Download, Loader2, RefreshCw, Activity, Palette, Minimize2, Layers, ArrowDownToLine, Sparkles } from 'lucide-react'
 import DataUsageModal from './DataUsageModal'
 import type { DataUsageStats } from '../../../../shared/types'
 import { formatBytes } from '../../../../shared/utils'
@@ -43,6 +43,16 @@ export default function Settings() {
   const [ytdlpUpdating, setYtdlpUpdating] = useState(false)
   const [ytdlpMessage, setYtdlpMessage] = useState<string | null>(null)
   const [ytdlpError, setYtdlpError] = useState<string | null>(null)
+
+  // App Update state
+  const [appVersion, setAppVersion] = useState('')
+  const [appUpdateAvailable, setAppUpdateAvailable] = useState(false)
+  const [appUpdateVersion, setAppUpdateVersion] = useState('')
+  const [appUpdateBody, setAppUpdateBody] = useState('')
+  const [appUpdateUrl, setAppUpdateUrl] = useState('')
+  const [appUpdateChecking, setAppUpdateChecking] = useState(false)
+  const [appUpdateDownloading, setAppUpdateDownloading] = useState(false)
+  const [appUpdateProgress, setAppUpdateProgress] = useState(0)
 
   // Data Usage state
   const [dataUsageStats, setDataUsageStats] = useState<DataUsageStats | null>(null)
@@ -98,7 +108,57 @@ export default function Settings() {
 
   useEffect(() => {
     loadDataUsageStats()
+    // Load app version
+    window.api.getAppVersion().then(setAppVersion).catch(() => {})
+    // Listen for update notifications
+    const removeUpdateListener = window.api.onUpdateAvailable((data) => {
+      if (data.available) {
+        setAppUpdateAvailable(true)
+        setAppUpdateVersion(data.version || '')
+        setAppUpdateBody(data.body || '')
+        setAppUpdateUrl(data.htmlUrl || '')
+      } else {
+        setAppUpdateAvailable(false)
+      }
+    })
+    const removeProgressListener = window.api.onUpdateDownloadProgress((progress) => {
+      setAppUpdateProgress(progress)
+    })
+    return () => {
+      removeUpdateListener()
+      removeProgressListener()
+    }
   }, [loadDataUsageStats])
+
+  const handleCheckAppUpdate = useCallback(async () => {
+    setAppUpdateChecking(true)
+    try {
+      const result = await window.api.checkForUpdate()
+      if (result.available) {
+        setAppUpdateAvailable(true)
+        setAppUpdateVersion(result.version || '')
+        setAppUpdateBody(result.body || '')
+        setAppUpdateUrl(result.htmlUrl || '')
+      } else {
+        setAppUpdateAvailable(false)
+      }
+    } catch {
+      // silently fail
+    } finally {
+      setAppUpdateChecking(false)
+    }
+  }, [])
+
+  const handleDownloadAppUpdate = useCallback(async () => {
+    if (!appUpdateUrl) return
+    setAppUpdateDownloading(true)
+    setAppUpdateProgress(0)
+    try {
+      await window.api.downloadUpdate(appUpdateUrl)
+    } catch {
+      setAppUpdateDownloading(false)
+    }
+  }, [appUpdateUrl])
 
   const handleResetDataUsage = useCallback(async () => {
     try {
@@ -211,6 +271,105 @@ export default function Settings() {
             </p>
 
             <ThemeToggle variant="inline" className="mt-2" />
+          </div>
+        </div>
+
+        {/* App Updates Section */}
+        <div className="rounded-2xl bg-card border border-border/80 p-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="size-9 rounded-xl bg-primary/10 flex items-center justify-center">
+                <Sparkles className="size-4 text-primary" />
+              </div>
+              <div>
+                <h2 className="text-sm font-semibold text-foreground">App Updates</h2>
+                <p className="text-xs text-muted-foreground">Check for and install the latest version of Hyro Music</p>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleCheckAppUpdate}
+              disabled={appUpdateChecking || appUpdateDownloading}
+              className="text-xs h-9 shrink-0"
+            >
+              {appUpdateChecking ? (
+                <Loader2 className="size-4 animate-spin mr-2" />
+              ) : (
+                <RefreshCw className="size-4 mr-2" />
+              )}
+              Check for Updates
+            </Button>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span>Current version:</span>
+              <span className="font-mono text-foreground bg-secondary px-2 py-0.5 rounded">v{appVersion || '...'}</span>
+            </div>
+
+            {appUpdateAvailable ? (
+              <div className="bg-green-500/10 border border-green-500/20 rounded-xl p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <div className="size-2 rounded-full bg-green-400 animate-pulse" />
+                    <span className="text-sm font-semibold text-green-400">Update Available</span>
+                  </div>
+                  <span className="text-xs font-mono text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+                    v{appUpdateVersion}
+                  </span>
+                </div>
+                {appUpdateBody && (
+                  <div className="text-xs text-muted-foreground leading-relaxed mb-3 max-h-24 overflow-y-auto whitespace-pre-wrap">
+                    {appUpdateBody}
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={handleDownloadAppUpdate}
+                    disabled={appUpdateDownloading}
+                    className="text-xs h-8"
+                  >
+                    {appUpdateDownloading ? (
+                      <Loader2 className="size-3 animate-spin mr-2" />
+                    ) : (
+                      <ArrowDownToLine className="size-3 mr-2" />
+                    )}
+                    {appUpdateDownloading ? `Downloading ${appUpdateProgress}%` : 'Install Update'}
+                  </Button>
+                  {appUpdateUrl && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => window.api.openExternal(appUpdateUrl)}
+                      className="text-xs h-8"
+                    >
+                      <ExternalLink className="size-3 mr-1" />
+                      View Release
+                    </Button>
+                  )}
+                </div>
+                {appUpdateDownloading && (
+                  <div className="mt-3 w-full bg-muted h-1 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-primary rounded-full transition-all duration-300"
+                      style={{ width: `${appUpdateProgress}%` }}
+                    />
+                  </div>
+                )}
+              </div>
+            ) : appUpdateChecking ? (
+              <div className="text-xs text-muted-foreground flex items-center gap-2">
+                <Loader2 className="size-3 animate-spin" />
+                Checking for updates...
+              </div>
+            ) : (
+              <div className="text-xs text-muted-foreground">
+                You are running the latest version.
+              </div>
+            )}
           </div>
         </div>
 

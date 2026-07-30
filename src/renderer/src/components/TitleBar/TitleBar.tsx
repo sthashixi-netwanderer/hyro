@@ -1,4 +1,5 @@
-import { Minus, Square, X, Sun, Moon, Monitor } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Minus, Square, X, Sun, Moon, Monitor, ArrowDownToLine, ExternalLink, Loader2 } from 'lucide-react'
 import { usePlayer } from '../../context/PlayerContext'
 import { useDownload } from '../../context/DownloadContext'
 import { useTheme, type Theme } from '../../context/ThemeContext'
@@ -6,10 +7,40 @@ import { cn } from '@/lib/utils'
 
 const THEME_CYCLE: Theme[] = ['dark', 'light', 'system']
 
+interface UpdateInfo {
+  available: boolean
+  version?: string
+  body?: string
+  htmlUrl?: string
+}
+
 export default function TitleBar() {
   const { currentTrack } = usePlayer()
   const { downloads, isPopupExpanded, setIsPopupExpanded } = useDownload()
   const { theme, setTheme } = useTheme()
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null)
+  const [showUpdatePopup, setShowUpdatePopup] = useState(false)
+  const [downloadingUpdate, setDownloadingUpdate] = useState(false)
+  const [downloadProgress, setDownloadProgress] = useState(0)
+
+  useEffect(() => {
+    const removeUpdateListener = window.api.onUpdateAvailable((data) => {
+      if (data.available) {
+        setUpdateInfo(data)
+      } else {
+        setUpdateInfo(null)
+      }
+    })
+
+    const removeProgressListener = window.api.onUpdateDownloadProgress((progress) => {
+      setDownloadProgress(progress)
+    })
+
+    return () => {
+      removeUpdateListener()
+      removeProgressListener()
+    }
+  }, [])
 
   const activeDownloads = downloads.filter(d => d.status === 'downloading')
   const queuedDownloads = downloads.filter(d => d.status === 'queued')
@@ -36,6 +67,17 @@ export default function TitleBar() {
     const idx = THEME_CYCLE.indexOf(theme)
     const next = THEME_CYCLE[(idx + 1) % THEME_CYCLE.length]
     setTheme(next)
+  }
+
+  const handleDownloadUpdate = async () => {
+    if (!updateInfo?.htmlUrl) return
+    setDownloadingUpdate(true)
+    setDownloadProgress(0)
+    try {
+      await window.api.downloadUpdate(updateInfo.htmlUrl)
+    } catch {
+      setDownloadingUpdate(false)
+    }
   }
 
   const themeIcon = theme === 'light'
@@ -66,9 +108,74 @@ export default function TitleBar() {
 
       {/* Right side: Control buttons & download progress */}
       <div
-        className="flex items-center h-full gap-2 -mr-4"
+        className="flex items-center h-full gap-2 -mr-4 relative"
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       >
+        {updateInfo?.available && (
+          <div className="relative">
+            <button
+              onClick={() => setShowUpdatePopup(!showUpdatePopup)}
+              className="flex items-center gap-1.5 px-2 py-0.5 rounded-full border cursor-pointer text-xs font-semibold transition-all select-none bg-green-500/15 border-green-500/30 hover:bg-green-500/25 text-green-400"
+              title={`Update available: v${updateInfo.version}`}
+            >
+              <div className="size-1.5 rounded-full bg-green-400 animate-pulse" />
+              <span className="text-[10px] hidden md:inline">v{updateInfo.version}</span>
+            </button>
+
+            {showUpdatePopup && (
+              <div className="absolute top-full right-0 mt-2 w-80 bg-card border border-border rounded-xl shadow-2xl p-4 z-50">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-foreground">Update Available</h3>
+                  <span className="text-xs font-mono text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+                    v{updateInfo.version}
+                  </span>
+                </div>
+                {updateInfo.body && (
+                  <div className="text-xs text-muted-foreground leading-relaxed mb-3 max-h-32 overflow-y-auto whitespace-pre-wrap">
+                    {updateInfo.body}
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleDownloadUpdate}
+                    disabled={downloadingUpdate}
+                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50"
+                  >
+                    {downloadingUpdate ? (
+                      <>
+                        <Loader2 className="size-3 animate-spin" />
+                        Downloading {downloadProgress}%
+                      </>
+                    ) : (
+                      <>
+                        <ArrowDownToLine className="size-3" />
+                        Install Update
+                      </>
+                    )}
+                  </button>
+                  {updateInfo.htmlUrl && (
+                    <button
+                      onClick={() => window.api.openExternal(updateInfo.htmlUrl!)}
+                      className="flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg bg-secondary text-secondary-foreground text-xs font-semibold hover:bg-secondary/80 transition-colors"
+                    >
+                      <ExternalLink className="size-3" />
+                      View
+                    </button>
+                  )}
+                </div>
+                {downloadingUpdate && (
+                  <div className="mt-2 w-full bg-muted h-1 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-primary rounded-full transition-all duration-300"
+                      style={{ width: `${downloadProgress}%` }}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {totalPending > 0 && (
           <button
             onClick={() => setIsPopupExpanded(!isPopupExpanded)}

@@ -7,11 +7,12 @@ import { usePlayer } from '../../context/PlayerContext'
 import { useDownload } from '../../context/DownloadContext'
 import { useNavigation } from '../../context/NavigationContext'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import FavoriteButton from '@/components/ui/FavoriteButton'
 import CachedImage from '@/components/ui/CachedImage'
-import { ArrowLeft, Play, Download, Check, ListMusic } from 'lucide-react'
+import { ArrowLeft, Play, Download, Check, ListMusic, Search, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface PlaylistDetailProps {
@@ -24,8 +25,17 @@ export default function PlaylistDetail({ playlistId, onBack }: PlaylistDetailPro
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const { playTrack } = usePlayer()
-  const { downloadPlaylist, isDownloading, getProgress, allDownloaded } = useDownload()
+  const { downloadPlaylist, isDownloading, getProgress, allDownloaded, cancelContainerDownloads } = useDownload()
   const { navigateTo } = useNavigation()
+  const [showSearch, setShowSearch] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+
+  const filteredVideos = (playlist?.videos || []).filter(video => {
+    const query = searchQuery.toLowerCase().trim()
+    if (!query) return true
+    return video.name.toLowerCase().includes(query) ||
+      video.artist?.name?.toLowerCase().includes(query)
+  })
 
   useEffect(() => {
     loadPlaylist()
@@ -68,6 +78,17 @@ export default function PlaylistDetail({ playlistId, onBack }: PlaylistDetailPro
     if (playlist && videos.length > 0) {
       downloadPlaylist(playlist, videos)
     }
+  }
+
+  function handleCancelAll() {
+    if (playlist) {
+      cancelContainerDownloads(`playlist:${playlist.playlistId}`)
+    }
+  }
+
+  function toggleSearch() {
+    if (showSearch) setSearchQuery('')
+    setShowSearch(!showSearch)
   }
 
   if (loading) {
@@ -155,7 +176,12 @@ export default function PlaylistDetail({ playlistId, onBack }: PlaylistDetailPro
           </div>
         </div>
 
-        <div className="flex gap-3">
+        <div className="flex gap-3 items-center">
+          {videos.length > 0 && (
+            <Button variant="ghost" size="icon" onClick={toggleSearch} className="text-muted-foreground hover:text-foreground ml-auto">
+              {showSearch ? <X className="size-4" /> : <Search className="size-4" />}
+            </Button>
+          )}
           {videos.length > 0 && (
             <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={handlePlayAll}>
               <Play className="size-4 fill-current" />
@@ -166,8 +192,7 @@ export default function PlaylistDetail({ playlistId, onBack }: PlaylistDetailPro
             <Button
               variant="secondary"
               className={cn(isDone && 'text-primary', playlistDownloading && 'gap-2')}
-              onClick={handleDownloadAll}
-              disabled={playlistDownloading}
+              onClick={playlistDownloading ? handleCancelAll : handleDownloadAll}
             >
               {playlistDownloading ? (
                 <>
@@ -186,7 +211,7 @@ export default function PlaylistDetail({ playlistId, onBack }: PlaylistDetailPro
                       {Math.round(playlistProgress?.progress || 0)}
                     </span>
                   </div>
-                  Downloading
+                  Cancel All
                 </>
               ) : (
                 <><Download className="size-4" /> Download All</>
@@ -199,12 +224,36 @@ export default function PlaylistDetail({ playlistId, onBack }: PlaylistDetailPro
             </Button>
           )}
         </div>
+        {showSearch && (
+          <div className="mt-3 relative">
+            <Input
+              autoFocus
+              placeholder="Search songs..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pr-9"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                <X className="size-4" />
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Scrollable Content */}
       <div className="flex-1 overflow-y-auto px-8 py-6">
-        {videos.length > 0 ? (
-          <TrackList tracks={videos} />
+        {filteredVideos.length > 0 ? (
+          <TrackList tracks={filteredVideos} />
+        ) : searchQuery ? (
+          <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+            <Search className="size-10 mb-3 opacity-40" />
+            <p className="text-sm">No results for "{searchQuery}"</p>
+          </div>
         ) : (
           <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
             <p>No songs in this playlist.</p>

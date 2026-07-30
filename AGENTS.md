@@ -117,9 +117,9 @@ The application follows Electron's standard three-process model:
   - `music:getLyrics` — Fetch lyrics from Musixmatch (synced) → LRCLIB (synced) → YouTube Music (plain). YouTube Music lyrics use InnerTube primary, ytmusic-api fallback. Title cleaning uses Groq API (when configured) or regex fallback.
   - `player:getStreamUrl` — Resolve a streamable audio URL. Uses InnerTube multi-client format resolution (`ANDROID_VR` → `IOS` → `ANDROID` → `TV` → `WEB` via `getBasicInfo` and `chooseFormat`) to obtain direct pre-deciphered audio URLs that return 200 OK in Chromium without 403 Forbidden throttling or JavaScript signature evaluation failures, falling back to `yt-dlp -f bestaudio --get-url` (30s timeout). Resets Innertube on failure to force re-initialization.
 - **`ipc/download.ts`** — Download IPC handlers for track/album/playlist downloads via `yt-dlp`:
-  - `download:track` — Download a single track (spawns `yt-dlp` with `--extractor-args 'youtube:player_client=android_vr,ios,android,web'` and `--cookies-from-browser` when configured in settings, sends progress with clean trackName via `download:progress`)
-  - `download:album` — Download all tracks in an album sequentially
-  - `download:playlist` — Download all tracks in a playlist sequentially
+  - `download:track` — Download a single track (spawns `yt-dlp` with `--extractor-args 'youtube:player_client=android_vr'` as primary client, falling back to `web_creator,mweb` then `web`; `--cookies-from-browser BROWSER+basictext` (appending `+basictext` for Chromium browsers to bypass GNOME Keyring AES-CBC encryption issues) when configured in settings, sends progress with clean trackName via `download:progress`)
+  - `download:album` — Download all tracks in an album sequentially (downloads album cover art once as `cover.jpg` and uses it for all tracks' `thumbnailPath` in the registry)
+  - `download:playlist` — Download all tracks in a playlist sequentially (downloads playlist cover art once as `cover.jpg` and uses it for all tracks' `thumbnailPath` in the registry)
   - `download:cancel` — Kill an active `yt-dlp` process by download ID
   - `download:progress` — Main-to-renderer push channel for progress/status updates
   - After each download completes, registers the track to the centralized `downloaded-tracks.json` registry in the app config directory
@@ -152,6 +152,15 @@ The application follows Electron's standard three-process model:
   - `ytdlp:getVersion` — Detect current installed version
   - `ytdlp:checkUpdate` — Check latest GitHub release tag and environment install method (`pip`, `pipx`, `homebrew`, `standalone`)
   - `ytdlp:update` — Multi-tier fallback updater executing pip/pipx/homebrew/native updates sequentially
+- **`ipc/update.ts`** — App auto-update system via GitHub Releases:
+  - `update:check` — Check GitHub releases for a newer version than the current app version
+  - `update:getVersion` — Return the current app version from `app.getVersion()`
+  - `update:download` — Download the platform-specific update asset to a temp directory and launch it
+  - Pushes `update:available` events to all renderer windows when a new release is detected
+  - Pushes `update:download-progress` events during asset download
+  - Periodically checks for updates every hour (initial check after 30 seconds)
+  - Platform-specific asset matching: `.AppImage` (Linux), `.dmg` (macOS), `.exe` (Windows)
+  - Exports `registerUpdateIPC()` and `stopUpdateChecks()` for lifecycle management
 
 ### Preload (`src/preload/`)
 
@@ -177,8 +186,8 @@ The application follows Electron's standard three-process model:
 - **`src/components/Library/`** — Library view with fixed header and scrollable body showing downloaded content organized by containers (albums, playlists). ContainerDetail shows individual tracks with play/delete controls and fixed header hero. Artist names in track rows are double-clickable to navigate to artist profile.
 - **`src/components/Downloads/DownloadPopup.tsx`** — Download status dropdown integrated with the TitleBar download progress indicator button. Only opens when clicking the title bar progress button during active downloads, and automatically disappears when no active downloads exist.
 - **`src/components/Downloads/Downloads.tsx`** — Dedicated Downloads screen view with fixed header (stats summary & clear/cancel buttons) and scrollable body displaying the complete persistent download queue (active, completed, cancelled, interrupted items). Supports retrying items, canceling active downloads, and clearing rows.
-- **`src/components/Settings/Settings.tsx`** — Settings page with fixed header and scrollable body cards for Groq API key input and Data Usage tracking modal. Persists settings to disk via `settings:save` IPC.
-- **`src/components/TitleBar/TitleBar.tsx`** — Custom window title bar component containing spinning app icon, title metadata details, and custom minimize, maximize, and close controls to support unified dark styling.
+- **`src/components/Settings/Settings.tsx`** — Settings page with fixed header and scrollable body cards for Groq API key input, Data Usage tracking modal, and App Updates section (version display, check button, install controls). Persists settings to disk via `settings:save` IPC.
+- **`src/components/TitleBar/TitleBar.tsx`** — Custom window title bar component containing spinning app icon, title metadata details, update notification badge (green pulsing dot with version), and custom minimize, maximize, and close controls to support unified dark styling.
 - **`src/styles/globals.css`** — Tailwind CSS v4 imports + Spotify-dark theme via CSS custom properties (e.g., `--color-primary: #1db954`, `--color-background: #0a0a0a`). Minimal custom utilities for scrollbar, Electron drag regions, and animations.
 - **`src/components/ui/`** — shadcn/ui base components (button, input, card, slider, skeleton, badge, scroll-area, separator). Installed via `npx shadcn@latest add`.
 - **`src/lib/utils.ts`** — `cn()` helper (clsx + tailwind-merge).
@@ -255,7 +264,7 @@ There are **no test commands** configured.
 - **Window config**: 1200×800 default size, 900×600 minimum, `titleBarStyle: 'hiddenInset'` (macOS-style hidden title bar), `autoHideMenuBar: true`, dark background (`#0a0a0a`).
 - **Security**: `contextIsolation: true`, `nodeIntegration: false`, `sandbox: false`. External links open in the system browser. A custom `media://` protocol (registered via `protocol.registerSchemesAsPrivileged` + `protocol.handle`) serves local files (downloaded tracks, pre-cached streams, thumbnails) to the renderer securely — the `file://` protocol is blocked by Chromium's cross-origin security model.
 - **Path alias**: `@/` resolves to `src/renderer/src/` in the renderer tsconfig and Vite config.
-- **Stream URL resolution**: The app uses `youtubei.js` (InnerTube) as the primary method for resolving streamable audio URLs. The library handles cipher deobfuscation, PoToken generation, and n-parameter transformation natively. If InnerTube fails, the app falls back to `yt-dlp` CLI (via `child_process.execFile`). Previous attempts to use `ytdl-core`, `@distube/ytdl-core`, and `play-dl` failed because YouTube's player obfuscation broke their decoders. The InnerTube integration provides direct access to YouTube's internal API with automatic client fallback (WEB_REMIX → other clients).
+- **Stream URL resolution**: The app uses `youtubei.js` (InnerTube) as the primary method for resolving streamable audio URLs. The library handles cipher deobfuscation, PoToken generation, and n-parameter transformation natively. If InnerTube fails, the app falls back to `yt-dlp` CLI (via `child_process.execFile`). Previous attempts to use `ytdl-core`, `@distube/ytdl-core`, and `play-dl` failed because YouTube's player obfuscation broke their decoders. The InnerTube integration provides direct access to YouTube's internal API with automatic client fallback (ANDROID_VR → IOS → ANDROID → TV → WEB).
 - **Download queue persistence**: The download queue is persisted to `app.getPath('userData')/download-queue.json` (e.g. `~/.config/hyro/download-queue.json` on Linux, `~/Library/Application Support/hyro/download-queue.json` on macOS). Interrupted downloads (in-progress when the app closed) are restored with an `interrupted` status and can be retried from the download popup.
 - **Downloaded tracks registry & physical file verification**: Completed downloads are registered to a centralized `downloaded-tracks.json` in `app.getPath('userData')`. The library reads from this registry instead of scanning the filesystem. Each entry contains the full track metadata including `filePath` (absolute path to the local MP3). When calling `library:getTracks`, the main process verifies that the local MP3 files physically exist on disk; if any registered tracks are missing (e.g. manually deleted outside the app), they are automatically and permanently purged from the registry. Additionally, the React frontend listens to window focus events and component deletions to instantly refresh the cached downloaded track list state.
 - **Metadata JSON sidecars**: Track metadata JSON files are stored in the application's configuration directory under `app.getPath('userData')/metadata/` using the same folder structure and naming convention as the track downloads.
@@ -273,6 +282,33 @@ There are **no test commands** configured.
 - **ASCII Project Logo**: The application features a custom preformatted ASCII text representation of the project logo (`HYRO`) as the main branding. It is displayed centered at the top of the Sidebar navigation, highlighted with subtle emerald neon drop-shadows, styled in the custom TitleBar header, and showcased as a bold watermark backdrop inside the Player's fullscreen Now Playing view.
 - **Volume Persistence**: The application automatically persists the playback volume percentage across new launches. The volume value is loaded on application startup from `settings.json` and dynamically updated with a 500ms debounce whenever the user adjusts the volume slider in the player controls.
 - **InnerTube Integration**: The app uses `youtubei.js` as the primary InnerTube API client for all YouTube Music operations (search, home feed, album/playlist/artist details, up-next recommendations, stream URLs, and lyrics). The library is initialized lazily on first use via `getInnertube()` and cached as a singleton. To prevent Node `undici` socket errors (`ETIMEDOUT` / `connect ENETUNREACH`) caused by unreachable IPv6 routes during initialization and requests, `dns.setDefaultResultOrder('ipv4first')` is applied globally and inside `getInnertube()`. If InnerTube fails (network error, YouTube API changes, etc.), the app automatically falls back to `ytmusic-api` for metadata and `yt-dlp` for stream URLs. Stream URL resolution specifically uses a multi-client format selection chain (`ANDROID_VR` → `IOS` → `ANDROID` → `TV` → `WEB` via `getBasicInfo` and `chooseFormat({ type: 'audio', quality: 'best' })`) to obtain direct pre-deciphered audio URLs (`200 OK`) without triggering `403 Forbidden` checks or JavaScript signature evaluation errors (`PlayerError: No valid URL to decipher`). The `resetInnertube(force)` function safely resets the instance and deduplicates resets while an initialization is in flight, and `withInnertubeRetry` applies a short backoff before retrying to ensure clean session recovery. Type mappers in `src/main/innertube/helpers.ts` convert youtubei.js response objects (`MusicResponsiveListItem`, `MusicTwoRowItem`, `MusicMultiRowListItem`, `MusicCardShelf`) to Hyro's shared types, with universal search results extraction traversing both built-in shelves (`search.songs`, etc.) and raw `search.contents` (`MusicCardShelf` Top Result cards and `ItemSection` node lists) to guarantee accurate search results across all query types. Additionally, `mapArtistDetail` operates asynchronously to fetch the artist's full discography by calling `artistResponse.getAllSongs()` for complete tracklists and calling `more_content.endpoint.call(yt.actions, { client: 'YTMUSIC', parse: true })` on shelf headers to expand full lists of albums and singles under their respective tabs.
+- **Auto-Update System**: The app checks GitHub Releases (`sthashixi-netwanderer/hyro`) for newer versions. The main process pushes `update:available` events to the renderer when a newer release is detected. The TitleBar shows a green pulsing notification badge with the new version; clicking it reveals a dropdown with release notes, an Install Update button, and a View Release link. The Settings page has an "App Updates" section showing the current version, a check button, and install controls. Updates are downloaded to a temp directory and launched via `shell.openPath()` (platform-native installer). Periodic background checks run every hour (initial check after 30 seconds). The `update:download` handler uses Electron's `net` module for HTTP requests and reports download progress via `update:download-progress` events.
 
+## Versioning Conventions
 
+This project uses **Semantic Versioning (semver)** for all app releases. When preparing a release, follow these guidelines:
 
+| Version Bump | When to Use | Example |
+|---|---|---|
+| **Major** (`X.0.0`) | Breaking changes, complete UI redesigns, migration to new platform, removal of features | `1.0.0` → `2.0.0` |
+| **Minor** (`x.Y.0`) | New features, new IPC channels, new UI sections, significant enhancements | `1.2.0` → `1.3.0` |
+| **Patch** (`x.y.Z`) | Bug fixes, dependency updates, performance improvements, documentation updates | `1.3.0` → `1.3.1` |
+
+### Release Naming Convention
+
+When creating a GitHub Release, use the format: `v{major}.{minor}.{patch}` (e.g., `v1.3.0`).
+
+### When to Release
+
+- **Patch release**: After fixing bugs, updating yt-dlp compatibility, fixing download issues, or improving stream URL resolution.
+- **Minor release**: After adding new features (e.g., lyrics, data usage tracking, auto-updates), new UI sections, or significant improvements to existing features.
+- **Major release**: Only for fundamental changes that alter how users interact with the app or break backward compatibility.
+
+### Platform Assets
+
+Each release should include platform-specific build artifacts:
+- **Linux**: `Hyro-{version}.AppImage`
+- **macOS**: `Hyro-{version}.dmg`
+- **Windows**: `Hyro-{version}-x64.exe` or `Hyro-{version}-arm64.exe`
+
+The auto-update system matches assets by filename pattern to find the correct download for the user's platform.
