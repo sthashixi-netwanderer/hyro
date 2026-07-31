@@ -5,7 +5,8 @@ import { useNavigation } from '../../context/NavigationContext'
 import { useDownload } from '../../context/DownloadContext'
 import type { DownloadedTrack } from '../../../../shared/types'
 import { Button } from '@/components/ui/button'
-import { ArrowLeft, Play, Pause, Trash2, Music, ListPlus } from 'lucide-react'
+import { Input } from '@/components/ui/input'
+import { ArrowLeft, Play, Pause, Trash2, Music, ListPlus, Search, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getTrackThumbnailUrl } from '../../../../shared/utils'
 
@@ -20,6 +21,15 @@ export default function ContainerDetail({ containerName, onBack }: ContainerDeta
   const { playTrack, currentTrack, isPlaying, togglePlay, queue, addToQueue } = usePlayer()
   const { navigateTo } = useNavigation()
   const { refreshDownloaded } = useDownload()
+  const [showSearch, setShowSearch] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+
+  const filteredTracks = tracks.filter(track => {
+    const query = searchQuery.toLowerCase().trim()
+    if (!query) return true
+    return track.name.toLowerCase().includes(query) ||
+      track.artist?.name?.toLowerCase().includes(query)
+  })
 
   useEffect(() => {
     loadTracks()
@@ -76,6 +86,11 @@ export default function ContainerDetail({ containerName, onBack }: ContainerDeta
 
   const thumbnailUrl = tracks.length > 0 ? getTrackThumbnailUrl(tracks[0]) : undefined
 
+  function toggleSearch() {
+    if (showSearch) setSearchQuery('')
+    setShowSearch(!showSearch)
+  }
+
   if (loading) {
     return (
       <div className="p-6">
@@ -95,9 +110,39 @@ export default function ContainerDetail({ containerName, onBack }: ContainerDeta
     <div className="flex flex-col h-full overflow-hidden">
       {/* Fixed Header */}
       <div className="shrink-0 px-8 pt-6 pb-4 bg-background/95 backdrop-blur-md z-20 border-b border-border/10">
-        <Button variant="ghost" size="sm" onClick={onBack} className="mb-4">
-          <ArrowLeft className="size-4 mr-2" /> Back
-        </Button>
+        <div className="flex items-center justify-between mb-4">
+          <Button variant="ghost" size="sm" onClick={onBack}>
+            <ArrowLeft className="size-4 mr-2" /> Back
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={toggleSearch}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            {showSearch ? <X className="size-5" /> : <Search className="size-5" />}
+          </Button>
+        </div>
+
+        {showSearch && (
+          <div className="mb-3 relative">
+            <Input
+              autoFocus
+              placeholder="Search tracks..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pr-9"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                <X className="size-4" />
+              </button>
+            )}
+          </div>
+        )}
 
         <div className="flex items-end gap-6 mb-4">
           <div className="w-32 h-32 rounded-lg overflow-hidden bg-muted shrink-0 shadow-lg">
@@ -127,7 +172,7 @@ export default function ContainerDetail({ containerName, onBack }: ContainerDeta
       {/* Scrollable Content */}
       <div className="flex-1 overflow-y-auto px-8 py-6">
         <div className="space-y-1">
-          {tracks.map((track, index) => {
+          {filteredTracks.map((track, index) => {
             const isCurrentTrack = currentTrack?.videoId === track.videoId && queue.some(q => q.videoId === track.videoId)
             return (
               <div

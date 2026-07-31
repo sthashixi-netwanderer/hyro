@@ -3,7 +3,7 @@ import type { Track } from '../../../shared/types'
 
 export interface DownloadItem {
   id: string
-  type: 'track' | 'album' | 'playlist'
+  type: 'track' | 'album' | 'playlist' | 'artist'
   trackName: string
   progress: number
   status: 'downloading' | 'done' | 'error' | 'cancelled' | 'interrupted' | 'queued'
@@ -14,16 +14,18 @@ export interface DownloadItem {
   track?: Track
   album?: any
   playlist?: any
+  artist?: any
   tracks?: Track[]
 }
 
 interface QueuedDownload {
   id: string
-  type: 'track' | 'album' | 'playlist'
+  type: 'track' | 'album' | 'playlist' | 'artist'
   trackName: string
   track?: Track
   album?: any
   playlist?: any
+  artist?: any
   tracks?: Track[]
 }
 
@@ -38,6 +40,7 @@ interface DownloadContextType {
   downloadTrack: (track: any) => void
   downloadAlbum: (album: any, tracks: Track[]) => void
   downloadPlaylist: (playlist: any, tracks: Track[]) => void
+  downloadArtist: (artist: any, tracks: Track[], albums: any[], singles: any[]) => void
   cancelDownload: (id: string) => void
   cancelContainerDownloads: (containerId: string) => void
   retryDownload: (item: DownloadItem) => void
@@ -313,6 +316,36 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     }
   }, [downloadedVideoIds])
 
+  const downloadArtist = useCallback((artist: any, tracks: Track[], albums: any[], singles: any[]) => {
+    // Filter out already-downloaded tracks
+    const toDownload = tracks.filter(t => !downloadedVideoIds.has(t.videoId))
+    if (toDownload.length === 0) return
+
+    // Build a set of videoIds that belong to albums/singles
+    const albumTrackIds = new Set<string>()
+    for (const container of [...albums, ...singles]) {
+      for (const t of toDownload) {
+        if (t.album?.albumId === container.albumId) {
+          albumTrackIds.add(t.videoId)
+        }
+      }
+    }
+
+    // Download each album/single that has downloadable tracks
+    for (const container of [...albums, ...singles]) {
+      const containerTracks = toDownload.filter(t => t.album?.albumId === container.albumId)
+      if (containerTracks.length > 0) {
+        downloadAlbum(container, containerTracks)
+      }
+    }
+
+    // Download remaining tracks (top songs not on any album/single)
+    const standaloneTracks = toDownload.filter(t => !albumTrackIds.has(t.videoId))
+    for (const track of standaloneTracks) {
+      downloadTrack(track)
+    }
+  }, [downloadedVideoIds, downloadAlbum, downloadTrack])
+
   const cancelDownload = useCallback(async (id: string) => {
     // Remove from queue if queued
     queueRef.current = queueRef.current.filter(q => q.id !== id)
@@ -388,6 +421,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       downloadTrack,
       downloadAlbum,
       downloadPlaylist,
+      downloadArtist,
       cancelDownload,
       cancelContainerDownloads,
       retryDownload,

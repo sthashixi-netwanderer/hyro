@@ -6,12 +6,13 @@ import TrackList from '../TrackList/TrackList'
 import { usePlayer } from '../../context/PlayerContext'
 import { useNavigation } from '../../context/NavigationContext'
 import { useFavorites } from '../../context/FavoritesContext'
+import { useDownload } from '../../context/DownloadContext'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { ArrowLeft, Play, Pause, Search, User, Disc3, Plus, Check, X, Music, Loader2 } from 'lucide-react'
+import { ArrowLeft, Play, Pause, Search, User, Disc3, Plus, Check, X, Music, Loader2, Download } from 'lucide-react'
 import CachedImage from '@/components/ui/CachedImage'
 import { cn } from '@/lib/utils'
 
@@ -33,6 +34,7 @@ export default function ArtistDetail({ artistId, onBack }: ArtistDetailProps) {
   const { playTrack, currentTrack, isPlaying, togglePlay, addToQueue } = usePlayer()
   const { navigateTo } = useNavigation()
   const { isFavorited, toggleFavorite, updateFavorite } = useFavorites()
+  const { downloadArtist, isDownloading } = useDownload()
 
   // Derived state (safe when artist is null)
   const isPlayingFromArtist = artist?.songs && artist.songs.length > 0 &&
@@ -414,6 +416,17 @@ export default function ArtistDetail({ artistId, onBack }: ArtistDetailProps) {
             {showSearch ? <X className="size-4" /> : <Search className="size-4" />}
             {showSearch ? 'Close Search' : 'Search Tracks'}
           </Button>
+          {allMasterTracks.length > 0 && (
+            <Button
+              variant="secondary"
+              className={cn('gap-2 transition-all duration-200', isDownloading(`artist:${artist.artistId}`) && 'bg-primary/20 text-primary border border-primary/60')}
+              onClick={() => downloadArtist(artist, allMasterTracks, albums, singles)}
+              disabled={isDownloading(`artist:${artist.artistId}`)}
+            >
+              <Download className="size-4" />
+              {isDownloading(`artist:${artist.artistId}`) ? 'Downloading...' : 'Download All'}
+            </Button>
+          )}
         </div>
 
         {/* Full-width Search Bar for filtering Artist Page content across all albums */}
