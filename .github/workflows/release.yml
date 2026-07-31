@@ -187,6 +187,6 @@ jobs:
           name: Hyro Music ${{ github.ref_name }}
           draft: false
           prerelease: false
-          make_latest: false
+          make_latest: true
           body_path: release_body.md
           files: artifacts/**/*
