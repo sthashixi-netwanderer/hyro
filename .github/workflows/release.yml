@@ -70,10 +70,10 @@ jobs:
         shell: bash
         run: |
           echo "=== Build outputs ==="
-          find dist -type f | sort
+          find release -type f | sort
           echo ""
           echo "=== Output sizes ==="
-          du -sh dist/* 2>/dev/null || true
+          du -sh release/* 2>/dev/null || true
 
       - name: Upload Linux artifacts
         if: matrix.platform == 'linux'
@@ -81,9 +81,9 @@ jobs:
         with:
           name: ${{ matrix.artifact_name }}
           path: |
-            dist/*.AppImage
-            dist/*.deb
-            dist/*.rpm
+            release/*.AppImage
+            release/*.deb
+            release/*.rpm
           retention-days: 3
 
       - name: Upload macOS artifacts
@@ -92,7 +92,7 @@ jobs:
         with:
           name: ${{ matrix.artifact_name }}
           path: |
-            dist/*.dmg
+            release/*.dmg
           retention-days: 3
 
       - name: Upload Windows artifacts
@@ -101,7 +101,7 @@ jobs:
         with:
           name: ${{ matrix.artifact_name }}
           path: |
-            dist/*.exe
+            release/*.exe
           retention-days: 3
 
   release:
