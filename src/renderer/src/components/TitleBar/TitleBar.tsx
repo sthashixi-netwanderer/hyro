@@ -94,7 +94,13 @@ export default function TitleBar() {
       style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
     >
       {/* Left side: App Logo & Name */}
-      <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+      <div className="flex items-center gap-2.5 text-xs font-semibold text-muted-foreground">
+        <img
+          src="/icon.png"
+          alt="Hyro"
+          className="size-5 rounded-[6px] shadow-sm ring-1 ring-border/30 object-contain"
+          draggable={false}
+        />
         <span className="font-mono text-[11px] text-primary font-black tracking-wider px-1.5 py-0.5 rounded bg-primary/10 border border-primary/20">
           HYRO
         </span>

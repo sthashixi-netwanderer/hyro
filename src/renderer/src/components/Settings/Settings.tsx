@@ -2,7 +2,7 @@ import { logger } from '../../utils/logger'
 import { useState, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Check, Key, ExternalLink, AlertCircle, Globe, Download, Loader2, RefreshCw, Activity, Palette, Minimize2, Layers, ArrowDownToLine, Sparkles } from 'lucide-react'
+import { Check, Key, ExternalLink, AlertCircle, Globe, Download, Loader2, RefreshCw, Activity, Palette, Minimize2, Layers, ArrowDownToLine, Sparkles, FileText, FolderOpen, Trash2 } from 'lucide-react'
 import DataUsageModal from './DataUsageModal'
 import type { DataUsageStats } from '../../../../shared/types'
 import { formatBytes } from '../../../../shared/utils'
@@ -58,6 +58,12 @@ export default function Settings() {
   const [dataUsageStats, setDataUsageStats] = useState<DataUsageStats | null>(null)
   const [isDataUsageModalOpen, setIsDataUsageModalOpen] = useState(false)
 
+  // Logs state
+  const [logPath, setLogPath] = useState<string>('')
+  const [logContent, setLogContent] = useState<string>('')
+  const [logLoading, setLogLoading] = useState(false)
+  const [showLogs, setShowLogs] = useState(false)
+
   useEffect(() => {
     window.api.getSettings().then((settings) => {
       setApiKey(settings.groqApiKey)
@@ -106,7 +112,47 @@ export default function Settings() {
     }
   }, [])
 
+  const loadLogs = useCallback(async () => {
+    try {
+      const p = await window.api.getLogPath()
+      setLogPath(p)
+    } catch {}
+  }, [])
+
+  const handleViewLogs = useCallback(async () => {
+    setLogLoading(true)
+    try {
+      const content = await window.api.readLogs(200 * 1024)
+      setLogContent(content || '(no logs yet)')
+      setShowLogs(true)
+    } catch {
+      setLogContent('Failed to read logs')
+      setShowLogs(true)
+    } finally {
+      setLogLoading(false)
+    }
+  }, [])
+
+  const handleClearLogs = useCallback(async () => {
+    try {
+      await window.api.clearLogs()
+      setLogContent('')
+      setShowLogs(false)
+    } catch (err) {
+      logger.error('Failed to clear logs:', err)
+    }
+  }, [])
+
+  const handleOpenLogFolder = useCallback(async () => {
+    try {
+      await window.api.openLogFolder()
+    } catch (err) {
+      logger.error('Failed to open log folder:', err)
+    }
+  }, [])
+
   useEffect(() => {
+    loadLogs()
     loadDataUsageStats()
     // Load app version
     window.api.getAppVersion().then(setAppVersion).catch(() => {})
@@ -757,6 +803,48 @@ export default function Settings() {
             </Button>
           </div>
         </div>
+      </div>
+
+      {/* Logs Section */}
+      <div className="rounded-2xl bg-card border border-border/80 p-6 mt-4">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="size-9 rounded-xl bg-primary/10 flex items-center justify-center">
+            <FileText className="size-4 text-primary" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h2 className="text-sm font-semibold text-foreground">App Logs</h2>
+            <p className="text-xs text-muted-foreground truncate" title={logPath}>
+              {logPath || 'Loading log path...'}
+            </p>
+          </div>
+        </div>
+
+        <p className="text-xs text-muted-foreground leading-relaxed mb-4">
+          Persistent log file capturing all app activity — downloads, streaming, errors, and system events. Useful for debugging download issues.
+        </p>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button variant="outline" size="sm" onClick={handleViewLogs} disabled={logLoading} className="gap-1.5">
+            {logLoading ? <Loader2 className="size-3.5 animate-spin" /> : <FileText className="size-3.5" />}
+            {showLogs ? 'Refresh' : 'View Logs'}
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleOpenLogFolder} className="gap-1.5">
+            <FolderOpen className="size-3.5" />
+            Open Folder
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleClearLogs} className="gap-1.5 text-destructive hover:text-destructive">
+            <Trash2 className="size-3.5" />
+            Clear
+          </Button>
+        </div>
+
+        {showLogs && (
+          <div className="mt-4 rounded-xl bg-black/40 border border-white/10 p-3 max-h-72 overflow-auto">
+            <pre className="text-[11px] font-mono text-muted-foreground whitespace-pre-wrap break-all leading-relaxed">
+              {logContent}
+            </pre>
+          </div>
+        )}
       </div>
     </div>
   </div>

@@ -2,7 +2,7 @@
 
 ![Hyro Music Preview](resources/preview.png)
 
-A desktop music streaming app built with Electron, React, and Tailwind CSS.
+A desktop music streaming app built with Electron, React, and Tailwind CSS. The brand mark is an **H + waveform** — two white pillars fused by a vivid green live waveform on a charcoal squircle.
 
 ## Download
 

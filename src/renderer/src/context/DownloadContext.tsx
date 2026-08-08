@@ -141,56 +141,110 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('focus', handleFocus)
   }, [refreshDownloaded])
 
-  useEffect(() => {
-    const removeListener = window.api.onDownloadProgress((data) => {
-      setDownloads(prev => {
-        const existing = prev.find(d => d.id === data.id)
-        if (existing) {
-          return prev.map(d => d.id === data.id ? { ...d, ...data, trackName: data.trackName || existing.trackName } : d)
-        }
-        const meta = trackMetadataRef.current.get(data.id)
-        const resolvedName = data.trackName || meta?.track?.name || meta?.album?.name || meta?.playlist?.name || data.id
-        return [...prev, {
-          id: data.id,
-          type: data.type,
-          trackName: resolvedName,
-          progress: data.progress,
-          status: data.status,
-          error: data.error,
-          trackIndex: data.trackIndex,
-          totalTracks: data.totalTracks,
-          track: meta?.track,
-          album: meta?.album,
-          playlist: meta?.playlist,
-          tracks: meta?.tracks
-        }]
-      })
+  // ── Batched / throttled progress: coalesce at ~12 Hz to prevent React flood (≈100 → 12 updates/s) ──
+  const pendingUpdatesRef = useRef<Map<string, any>>(new Map())
+  const flushFrameRef = useRef<number | null>(null)
+  const flushTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-      if (data.status === 'done' || data.status === 'error' || data.status === 'cancelled') {
-        // Only decrement activeCount for container-level completion events, not for individual tracks within containers.
-        // Individual track events have IDs like: "album:albumId:videoId" or "playlist:playlistId:videoId"
-        // Container events have IDs like: "album:albumId" or "playlist:playlistId" or just "videoId" for single tracks
-        const isContainerEvent = (id: string) => {
-          // Count colons: container events have exactly 1 colon (album:id or playlist:id)
-          // Track events within containers have 2 colons (album:id:videoId or playlist:id:videoId)
-          return (id.match(/:/g) || []).length === 1 || !id.includes(':')
+  const flushPending = useCallback(() => {
+    if (pendingUpdatesRef.current.size === 0) return
+    const batch = Array.from(pendingUpdatesRef.current.values())
+    pendingUpdatesRef.current.clear()
+    if (flushFrameRef.current !== null) { cancelAnimationFrame(flushFrameRef.current); flushFrameRef.current = null }
+    if (flushTimeoutRef.current) { clearTimeout(flushTimeoutRef.current); flushTimeoutRef.current = null }
+
+    setDownloads(prev => {
+      let next = prev
+      let changed = false
+      for (const data of batch) {
+        const existing = next.find(d => d.id === data.id)
+        if (existing) {
+          // Skip if progress/status identical (dedupe)
+          if (existing.progress === data.progress && existing.status === data.status) continue
+          next = next.map(d => d.id === data.id ? { ...d, ...data, trackName: data.trackName || existing.trackName } : d)
+          changed = true
+        } else {
+          const meta = trackMetadataRef.current.get(data.id)
+          const resolvedName = data.trackName || meta?.track?.name || meta?.album?.name || meta?.playlist?.name || data.id
+          next = [...next, {
+            id: data.id,
+            type: data.type,
+            trackName: resolvedName,
+            progress: data.progress,
+            status: data.status,
+            error: data.error,
+            trackIndex: data.trackIndex,
+            totalTracks: data.totalTracks,
+            track: meta?.track,
+            album: meta?.album,
+            playlist: meta?.playlist,
+            tracks: meta?.tracks
+          }]
+          changed = true
         }
-        
+      }
+      return changed ? next : prev
+    })
+
+    // Defer queue bookkeeping until after state flush to avoid interleaving
+    for (const data of batch) {
+      if (data.status === 'done' || data.status === 'error' || data.status === 'cancelled') {
+        const isContainerEvent = (id: string) => (id.match(/:/g) || []).length === 1 || !id.includes(':')
         if (isContainerEvent(data.id)) {
           activeCountRef.current = Math.max(0, activeCountRef.current - 1)
           processQueue()
         }
       }
+      if (data.status === 'done') refreshDownloaded()
+    }
+  }, [refreshDownloaded])
 
-      if (data.status === 'done') {
-        refreshDownloaded()
+  const scheduleFlush = useCallback((immediate = false) => {
+    if (immediate) {
+      if (flushFrameRef.current !== null) cancelAnimationFrame(flushFrameRef.current)
+      if (flushTimeoutRef.current) clearTimeout(flushTimeoutRef.current)
+      flushFrameRef.current = null
+      flushTimeoutRef.current = null
+      flushPending()
+      return
+    }
+    // Use rAF for smooth UI + fallback timeout for background tabs where rAF is throttled
+    if (flushFrameRef.current === null) {
+      flushFrameRef.current = requestAnimationFrame(() => {
+        flushFrameRef.current = null
+        flushPending()
+      })
+    }
+    if (!flushTimeoutRef.current) {
+      flushTimeoutRef.current = setTimeout(() => {
+        if (flushFrameRef.current !== null) cancelAnimationFrame(flushFrameRef.current)
+        flushFrameRef.current = null
+        flushTimeoutRef.current = null
+        flushPending()
+      }, 90)
+    }
+  }, [flushPending])
+
+  useEffect(() => {
+    const removeListener = window.api.onDownloadProgress((data) => {
+      const isTerminal = data.status === 'done' || data.status === 'error' || data.status === 'cancelled'
+      // Terminal events bypass batching for snappy UI
+      if (isTerminal) {
+        pendingUpdatesRef.current.set(data.id, data)
+        scheduleFlush(true)
+        return
       }
+      // Coalesce downloading progress (≈100/s → ≤12/s)
+      pendingUpdatesRef.current.set(data.id, data)
+      scheduleFlush(false)
     })
 
     return () => {
       removeListener()
+      if (flushFrameRef.current !== null) cancelAnimationFrame(flushFrameRef.current)
+      if (flushTimeoutRef.current) clearTimeout(flushTimeoutRef.current)
     }
-  }, [refreshDownloaded])
+  }, [scheduleFlush])
 
   const isDownloaded = useCallback((videoId: string) => {
     return downloadedVideoIds.has(videoId)

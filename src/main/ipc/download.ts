@@ -198,6 +198,81 @@ function deleteFileSafe(filePath: string): void {
 }
 
 /**
+ * Create a throttled progress sender that limits IPC to ~8 Hz and ≥1% delta.
+ * Prevents React flood from yt-dlp --newline (≈50–100 updates/s) which was
+ * freezing the UI during downloads. Progress 0 and 100 always flush immediately.
+ */
+function createThrottledProgress(
+  rawSend: (p: number) => void,
+  opts: { intervalMs?: number; minDelta?: number } = {}
+): { send: (p: number) => void; flush: (p?: number) => void; cancel: () => void } {
+  const intervalMs = opts.intervalMs ?? 120
+  const minDelta = opts.minDelta ?? 1
+  let lastSent = -10
+  let lastTime = 0
+  let pending: number | null = null
+  let timer: ReturnType<typeof setTimeout> | null = null
+
+  const flushPending = (): void => {
+    if (pending !== null) {
+      const p = pending
+      pending = null
+      lastSent = p
+      lastTime = Date.now()
+      rawSend(p)
+    }
+    if (timer) { clearTimeout(timer); timer = null }
+  }
+
+  const send = (p: number): void => {
+    // Clamp and always immediately flush 0 and 100
+    const clamped = Math.max(0, Math.min(100, p))
+    if (clamped >= 100 || clamped <= 0) {
+      if (timer) { clearTimeout(timer); timer = null }
+      pending = null
+      lastSent = clamped
+      lastTime = Date.now()
+      rawSend(clamped)
+      return
+    }
+    const now = Date.now()
+    const delta = Math.abs(clamped - lastSent)
+    if (delta >= minDelta && now - lastTime >= intervalMs) {
+      if (timer) { clearTimeout(timer); timer = null }
+      pending = null
+      lastSent = clamped
+      lastTime = now
+      rawSend(clamped)
+      return
+    }
+    // Coalesce intermediate updates
+    pending = clamped
+    if (!timer) {
+      timer = setTimeout(flushPending, intervalMs)
+    }
+  }
+
+  const flush = (p?: number): void => {
+    if (typeof p === 'number') {
+      if (timer) { clearTimeout(timer); timer = null }
+      pending = null
+      lastSent = Math.max(0, Math.min(100, p))
+      lastTime = Date.now()
+      rawSend(lastSent)
+    } else {
+      flushPending()
+    }
+  }
+
+  const cancel = (): void => {
+    if (timer) { clearTimeout(timer); timer = null }
+    pending = null
+  }
+
+  return { send, flush, cancel }
+}
+
+/**
  * Downloads a track with yt-dlp. Tries multiple player clients and
  * falls back to no-cookies when cookie decryption fails.
  */
@@ -375,8 +450,10 @@ export function registerDownloadIPC(mainWindow: BrowserWindow | null): void {
 
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
 
-    try {
-      await downloadTrackAudio(downloadId, track.videoId, basePath, (progress) => {
+    logger.info(`[download] Starting track: ${track.name} (${track.videoId}) -> ${basePath}`)
+
+    const throttled = createThrottledProgress((progress) => {
+      if (!event.sender.isDestroyed()) {
         event.sender.send('download:progress', {
           id: downloadId,
           type: 'track',
@@ -384,7 +461,12 @@ export function registerDownloadIPC(mainWindow: BrowserWindow | null): void {
           progress,
           status: 'downloading'
         })
-      })
+      }
+    })
+
+    try {
+      await downloadTrackAudio(downloadId, track.videoId, basePath, throttled.send)
+      throttled.flush(100)
 
       const actualMp3 = findActualMp3(dir, trackName)
       const finalBasePath = actualMp3 ? actualMp3.replace('.mp3', '') : basePath
@@ -396,14 +478,23 @@ export function registerDownloadIPC(mainWindow: BrowserWindow | null): void {
         keepThumbnail: false
       })
 
-      // Save lyrics for offline display (non-blocking)
-      saveLyricsForTrack(
-        (actualMp3 || basePath + '.mp3'),
-        track.name,
-        track.artist?.name || 'Unknown Artist',
-        track.album?.name || null,
-        track.duration || null
-      )
+      // Defer registry/lyrics work off the critical path so the next progress tick isn't blocked
+      setImmediate(() => {
+        try {
+          writeSidecarJson(finalBasePath, track, {
+            container: track.artist?.name || 'Unknown Artist',
+            containerType: 'single',
+            keepThumbnail: false
+          })
+        } catch (e) { logger.warn('[download] writeSidecarJson failed', e) }
+        saveLyricsForTrack(
+          (actualMp3 || basePath + '.mp3'),
+          track.name,
+          track.artist?.name || 'Unknown Artist',
+          track.album?.name || null,
+          track.duration || null
+        ).catch(() => {})
+      })
 
       event.sender.send('download:progress', {
         id: downloadId,
@@ -412,8 +503,10 @@ export function registerDownloadIPC(mainWindow: BrowserWindow | null): void {
         progress: 100,
         status: 'done'
       })
+      logger.info(`[download] Track done: ${track.name} (${downloadId})`)
       return { success: true }
     } catch (err: any) {
+      throttled.cancel()
       if (err.message === 'Cancelled') {
         deletePartialFiles(dir, trackName)
         event.sender.send('download:progress', {
@@ -423,6 +516,7 @@ export function registerDownloadIPC(mainWindow: BrowserWindow | null): void {
           progress: 0,
           status: 'cancelled'
         })
+        logger.info(`[download] Track cancelled: ${track.name} (${downloadId})`)
         return { success: false, error: 'Cancelled' }
       }
       event.sender.send('download:progress', {
@@ -458,8 +552,10 @@ export function registerDownloadIPC(mainWindow: BrowserWindow | null): void {
     }
     ipcMain.on('download:cancel', cancelHandler)
 
+    logger.info(`[download] Starting album: ${album.name} (${tracks.length} tracks, concurrency=${maxConcurrent})`)
+
     try {
-      // Process tracks in batches of maxConcurrent
+      // Process tracks in batches of maxConcurrent — throttle per-track IPC to ≤8Hz
       for (let batchStart = 0; batchStart < tracks.length && !cancelled; batchStart += maxConcurrent) {
         const batch = tracks.slice(batchStart, batchStart + maxConcurrent)
         const promises = batch.map((track, batchIdx) => {
@@ -469,37 +565,47 @@ export function registerDownloadIPC(mainWindow: BrowserWindow | null): void {
           const basePath = join(dir, `${trackNum}. ${trackName}`)
           const trackDownloadId = `${albumDownloadId}:${track.videoId}`
 
-          return downloadTrackAudio(trackDownloadId, track.videoId, basePath, (progress) => {
-            event.sender.send('download:progress', {
-              id: trackDownloadId,
-              type: 'album',
-              progress,
-              status: 'downloading',
-              trackIndex: i,
-              totalTracks: tracks.length,
-              trackName: track.name
-            })
-          }).then(() => {
+          const throttled = createThrottledProgress((progress) => {
+            if (!event.sender.isDestroyed()) {
+              event.sender.send('download:progress', {
+                id: trackDownloadId,
+                type: 'album',
+                progress,
+                status: 'downloading',
+                trackIndex: i,
+                totalTracks: tracks.length,
+                trackName: track.name
+              })
+            }
+          })
+
+          return downloadTrackAudio(trackDownloadId, track.videoId, basePath, throttled.send).then(() => {
+            throttled.flush(100)
             if (cancelled) return
             const actualMp3 = findActualMp3(dir, `${trackNum}. ${trackName}`)
             const finalBasePath = actualMp3 ? actualMp3.replace('.mp3', '') : basePath
-            writeSidecarJson(finalBasePath, {
-              ...track,
-              artist: album.artist || track.artist,
-              album: { albumId: album.albumId || '', name: album.name }
-            }, {
-              container: `${artistDir} - ${albumDir}`,
-              containerType: 'album',
-              keepThumbnail: true,
-              containerCoverPath
+            // Defer registry + lyrics off critical path
+            setImmediate(() => {
+              try {
+                writeSidecarJson(finalBasePath, {
+                  ...track,
+                  artist: album.artist || track.artist,
+                  album: { albumId: album.albumId || '', name: album.name }
+                }, {
+                  container: `${artistDir} - ${albumDir}`,
+                  containerType: 'album',
+                  keepThumbnail: true,
+                  containerCoverPath
+                })
+              } catch (e) { logger.warn('[download] writeSidecarJson failed', e) }
+              saveLyricsForTrack(
+                (actualMp3 || basePath + '.mp3'),
+                track.name,
+                (album.artist || track.artist)?.name || 'Unknown Artist',
+                album.name || null,
+                track.duration || null
+              ).catch(() => {})
             })
-            saveLyricsForTrack(
-              (actualMp3 || basePath + '.mp3'),
-              track.name,
-              (album.artist || track.artist)?.name || 'Unknown Artist',
-              album.name || null,
-              track.duration || null
-            )
             event.sender.send('download:progress', {
               id: trackDownloadId,
               type: 'album',
@@ -510,6 +616,7 @@ export function registerDownloadIPC(mainWindow: BrowserWindow | null): void {
               totalTracks: tracks.length
             })
           }).catch((err: any) => {
+            throttled.cancel()
             if (cancelled || err.message === 'Cancelled') {
               deletePartialFiles(dir, `${trackNum}. ${trackName}`)
               event.sender.send('download:progress', {
@@ -521,6 +628,7 @@ export function registerDownloadIPC(mainWindow: BrowserWindow | null): void {
                 totalTracks: tracks.length
               })
             } else {
+              logger.warn(`[download] Album track failed: ${track.name} - ${err.message?.slice(0,200)}`)
               event.sender.send('download:progress', {
                 id: trackDownloadId,
                 type: 'album',
@@ -586,6 +694,8 @@ export function registerDownloadIPC(mainWindow: BrowserWindow | null): void {
     }
     ipcMain.on('download:cancel', cancelHandler)
 
+    logger.info(`[download] Starting playlist: ${playlist.name} (${tracks.length} tracks, concurrency=${maxConcurrent})`)
+
     try {
       for (let batchStart = 0; batchStart < tracks.length && !cancelled; batchStart += maxConcurrent) {
         const batch = tracks.slice(batchStart, batchStart + maxConcurrent)
@@ -596,33 +706,42 @@ export function registerDownloadIPC(mainWindow: BrowserWindow | null): void {
           const basePath = join(dir, `${trackNum}. ${trackName}`)
           const trackDownloadId = `${playlistDownloadId}:${track.videoId}`
 
-          return downloadTrackAudio(trackDownloadId, track.videoId, basePath, (progress) => {
-            event.sender.send('download:progress', {
-              id: trackDownloadId,
-              type: 'playlist',
-              progress,
-              status: 'downloading',
-              trackIndex: i,
-              totalTracks: tracks.length,
-              trackName: track.name
-            })
-          }).then(() => {
+          const throttled = createThrottledProgress((progress) => {
+            if (!event.sender.isDestroyed()) {
+              event.sender.send('download:progress', {
+                id: trackDownloadId,
+                type: 'playlist',
+                progress,
+                status: 'downloading',
+                trackIndex: i,
+                totalTracks: tracks.length,
+                trackName: track.name
+              })
+            }
+          })
+
+          return downloadTrackAudio(trackDownloadId, track.videoId, basePath, throttled.send).then(() => {
+            throttled.flush(100)
             if (cancelled) return
             const actualMp3 = findActualMp3(dir, `${trackNum}. ${trackName}`)
             const finalBasePath = actualMp3 ? actualMp3.replace('.mp3', '') : basePath
-            writeSidecarJson(finalBasePath, track, {
-              container: playlistDir,
-              containerType: 'playlist',
-              keepThumbnail: true,
-              containerCoverPath
+            setImmediate(() => {
+              try {
+                writeSidecarJson(finalBasePath, track, {
+                  container: playlistDir,
+                  containerType: 'playlist',
+                  keepThumbnail: true,
+                  containerCoverPath
+                })
+              } catch (e) { logger.warn('[download] writeSidecarJson failed', e) }
+              saveLyricsForTrack(
+                (actualMp3 || basePath + '.mp3'),
+                track.name,
+                track.artist?.name || 'Unknown Artist',
+                track.album?.name || null,
+                track.duration || null
+              ).catch(() => {})
             })
-            saveLyricsForTrack(
-              (actualMp3 || basePath + '.mp3'),
-              track.name,
-              track.artist?.name || 'Unknown Artist',
-              track.album?.name || null,
-              track.duration || null
-            )
             event.sender.send('download:progress', {
               id: trackDownloadId,
               type: 'playlist',
@@ -633,6 +752,7 @@ export function registerDownloadIPC(mainWindow: BrowserWindow | null): void {
               totalTracks: tracks.length
             })
           }).catch((err: any) => {
+            throttled.cancel()
             if (cancelled || err.message === 'Cancelled') {
               deletePartialFiles(dir, `${trackNum}. ${trackName}`)
               event.sender.send('download:progress', {

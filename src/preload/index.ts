@@ -121,6 +121,13 @@ const api = {
   // Shell
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
 
+  // Logs
+  getLogPath: () => ipcRenderer.invoke('log:getPath'),
+  readLogs: (maxBytes?: number) => ipcRenderer.invoke('log:read', maxBytes),
+  clearLogs: () => ipcRenderer.invoke('log:clear'),
+  openLogFolder: () => ipcRenderer.invoke('log:open'),
+  logToMain: (level: string, ...args: unknown[]) => ipcRenderer.invoke('log:renderer', level, ...args),
+
   // Window Custom controls
   minimizeWindow: () => ipcRenderer.invoke('window:minimize'),
   maximizeWindow: () => ipcRenderer.invoke('window:maximize'),

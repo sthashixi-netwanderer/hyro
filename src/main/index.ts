@@ -1,8 +1,8 @@
 import { app } from 'electron'
-import { logger, suppressConsole } from './logger'
+import { logger, suppressConsole, initLogger, registerLoggerIPC } from './logger'
 import { getYtDlpBinaryPath } from './ipc/ytdlp-path'
 
-// Suppress console output in production
+// Suppress console output in production (still file-logs everything)
 suppressConsole()
 
 import { shell, BrowserWindow, protocol, net, ipcMain, Tray, Menu, nativeImage, powerSaveBlocker } from 'electron'
@@ -82,10 +82,20 @@ const STREAM_CACHE_DIR = join(app.getPath('userData'), 'stream-cache')
 
 /** Resolve the app icon path — extraResources in production, project root in dev. */
 function getIconPath(): string {
+  const iconFile = process.platform === 'win32' ? 'icon.ico' : process.platform === 'darwin' ? 'icon.icns' : 'icon.png'
   if (app.isPackaged) {
+    const packaged = join(process.resourcesPath, iconFile)
+    // Fallback to png if platform-specific not found (dev parity)
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const fs = require('fs')
+      if (fs.existsSync(packaged)) return packaged
+    } catch {
+      // ignore
+    }
     return join(process.resourcesPath, 'icon.png')
   }
-  return join(__dirname, '../../resources/icon.png')
+  return join(__dirname, '../../resources', iconFile)
 }
 
 /** Check that yt-dlp is installed and accessible on PATH. */
@@ -107,7 +117,15 @@ function createTray(): void {
     const iconPath = getIconPath()
     let icon = nativeImage.createFromPath(iconPath)
     if (!icon.isEmpty()) {
-      icon = icon.resize({ width: 16, height: 16 })
+      // Platform-appropriate tray size: 16px (Win/Linux), 22px template (macOS)
+      const traySize = process.platform === 'darwin' ? 22 : 16
+      // For ICO/ICNS the image already contains the exact size, so only resize if larger
+      if (icon.getSize().width > traySize || icon.getSize().height > traySize) {
+        icon = icon.resize({ width: traySize, height: traySize, quality: 'best' })
+      }
+      if (process.platform === 'darwin') {
+        icon.setTemplateImage(false)
+      }
     }
 
     tray = new Tray(icon)
@@ -247,8 +265,28 @@ function createWindow(): void {
   registerDownloadIPC(mainWindow)
 }
 
+process.on('uncaughtException', (err) => {
+  try { logger.error('[uncaughtException]', err) } catch {}
+})
+process.on('unhandledRejection', (reason) => {
+  try { logger.error('[unhandledRejection]', String(reason)) } catch {}
+})
+
 app.whenReady().then(async () => {
-  electronApp.setAppUserModelId('com.hyro')
+  initLogger()
+  registerLoggerIPC()
+  logger.info('App ready', { version: app.getVersion(), platform: process.platform, arch: process.arch })
+  electronApp.setAppUserModelId('com.hyro.music')
+
+  // Ensure dock / app menu icon is set from the new brand icon (macOS & Linux)
+  try {
+    const icon = nativeImage.createFromPath(getIconPath())
+    if (!icon.isEmpty() && process.platform === 'darwin' && app.dock) {
+      app.dock.setIcon(icon)
+    }
+  } catch {
+    // ignore dock icon failure
+  }
 
   protocol.handle('media', (request) => {
     const { pathname } = new URL(request.url)

@@ -38,11 +38,17 @@ export default function Sidebar({ currentView, currentViewData, onNavigate }: Si
       style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
     >
       <div className="px-3 pt-6 pb-4 select-none" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-        <div className="flex flex-col items-center justify-center">
+        <div className="flex flex-col items-center justify-center gap-3">
+          <img
+            src="/icon.png"
+            alt="Hyro"
+            className="size-12 rounded-xl shadow-lg ring-1 ring-border/20 object-contain"
+            draggable={false}
+          />
           <pre className="font-mono text-[5.5px] leading-[1.1] text-primary whitespace-pre overflow-hidden drop-shadow-[0_0_10px_rgba(29,185,84,0.3)]">
             {ASCII_LOGO}
           </pre>
-          <div className="text-center mt-2">
+          <div className="text-center">
             <span className="text-[10px] font-semibold uppercase tracking-[0.25em] text-muted-foreground">Music</span>
           </div>
         </div>

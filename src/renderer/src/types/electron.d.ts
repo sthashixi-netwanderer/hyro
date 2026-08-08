@@ -110,6 +110,13 @@ interface ElectronAPI {
     error?: string
   }>
 
+  // Logs
+  getLogPath: () => Promise<string>
+  readLogs: (maxBytes?: number) => Promise<string>
+  clearLogs: () => Promise<{ success: boolean }>
+  openLogFolder: () => Promise<{ success: boolean; path?: string; error?: string }>
+  logToMain: (level: string, ...args: unknown[]) => Promise<{ success: boolean }>
+
   // Update
   checkForUpdate: () => Promise<{
     available: boolean
