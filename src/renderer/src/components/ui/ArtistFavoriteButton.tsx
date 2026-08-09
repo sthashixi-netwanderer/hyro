@@ -1,18 +1,17 @@
-import { useLikedSongs } from '../../context/LikedSongsContext'
-import type { Track } from '../../../../shared/types'
+import { useFavorites } from '../../context/FavoritesContext'
 import { Plus, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-interface FavoriteButtonProps {
+interface ArtistFavoriteButtonProps {
   id: string
-  track: Track
+  artist: any
   className?: string
   size?: 'sm' | 'md'
 }
 
-export default function FavoriteButton({ id, track, className, size = 'sm' }: FavoriteButtonProps) {
-  const { isLiked, toggleLike } = useLikedSongs()
-  const liked = isLiked(id)
+export default function ArtistFavoriteButton({ id, artist, className, size = 'sm' }: ArtistFavoriteButtonProps) {
+  const { isFavorited, toggleFavorite } = useFavorites()
+  const liked = isFavorited(id, 'artist')
   const iconSize = size === 'sm' ? 'size-4' : 'size-5'
 
   return (
@@ -26,9 +25,9 @@ export default function FavoriteButton({ id, track, className, size = 'sm' }: Fa
       )}
       onClick={(e) => {
         e.stopPropagation()
-        toggleLike(track)
+        toggleFavorite(id, 'artist', artist)
       }}
-      title={liked ? 'Remove from liked songs' : 'Save to liked songs'}
+      title={liked ? 'Unfollow artist' : 'Follow artist'}
     >
       {liked ? <Check className={iconSize} /> : <Plus className={iconSize} />}
     </button>

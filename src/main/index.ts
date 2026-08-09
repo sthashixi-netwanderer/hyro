@@ -20,6 +20,8 @@ import { registerLibraryIPC } from './ipc/library'
 import { registerStreamCacheIPC, clearStreamCache } from './ipc/stream-cache'
 import { registerHistoryIPC } from './ipc/history'
 import { registerFavoritesIPC } from './ipc/favorites'
+import { registerLikedSongsIPC } from './ipc/liked-songs'
+import { registerPlaylistsIPC } from './ipc/playlists'
 import { registerSettingsIPC, loadSettings } from './ipc/settings'
 import { registerYtDlpIPC } from './ipc/ytdlp'
 import { registerDataUsageIPC } from './ipc/data-usage'
@@ -356,6 +358,8 @@ app.whenReady().then(async () => {
   registerStreamCacheIPC()
   registerHistoryIPC()
   registerFavoritesIPC()
+  registerLikedSongsIPC()
+  registerPlaylistsIPC()
   registerSettingsIPC()
   registerYtDlpIPC()
   registerDataUsageIPC()

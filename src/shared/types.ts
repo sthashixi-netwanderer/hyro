@@ -89,7 +89,7 @@ export interface PlayerState {
   isMuted: boolean
 }
 
-export type ViewType = 'home' | 'search' | 'queue' | 'album' | 'playlist' | 'artist' | 'library' | 'libraryContainer' | 'history' | 'favorites' | 'settings' | 'downloads'
+export type ViewType = 'home' | 'search' | 'queue' | 'album' | 'playlist' | 'artist' | 'library' | 'libraryContainer' | 'history' | 'favorites' | 'settings' | 'downloads' | 'likedSongs' | 'playlists' | 'userPlaylist'
 
 export interface DownloadedTrack extends Track {
   filePath: string
@@ -113,6 +113,20 @@ export interface FavoriteItem {
   type: 'track' | 'album' | 'playlist' | 'artist'
   data: any
   addedAt: string
+}
+
+export interface UserPlaylist {
+  id: string
+  name: string
+  description: string
+  tracks: Track[]
+  thumbnailUrl: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface LikedSongsData {
+  tracks: Track[]
 }
 
 export interface TimeframeUsage {

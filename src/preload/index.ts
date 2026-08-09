@@ -60,11 +60,33 @@ const api = {
   removeHistory: (videoIds: string[]) => ipcRenderer.invoke('history:remove', videoIds),
   clearHistory: () => ipcRenderer.invoke('history:clear'),
 
-  // Favorites
+  // Favorites (legacy)
   getFavorites: () => ipcRenderer.invoke('favorites:get'),
   addFavorite: (item: { id: string; type: string; data: any }) => ipcRenderer.invoke('favorites:add', item),
   removeFavorite: (id: string, type: string) => ipcRenderer.invoke('favorites:remove', id, type),
   isFavorited: (id: string, type: string) => ipcRenderer.invoke('favorites:check', id, type),
+
+  // Liked Songs
+  getLikedSongs: () => ipcRenderer.invoke('liked-songs:get'),
+  toggleLikedSong: (track: any) => ipcRenderer.invoke('liked-songs:toggle', track),
+  isLikedSong: (videoId: string) => ipcRenderer.invoke('liked-songs:check', videoId),
+  addLikedSongs: (tracks: any[]) => ipcRenderer.invoke('liked-songs:addTracks', tracks),
+  removeLikedSong: (videoId: string) => ipcRenderer.invoke('liked-songs:remove', videoId),
+  removeLikedSongs: (videoIds: string[]) => ipcRenderer.invoke('liked-songs:removeTracks', videoIds),
+  reorderLikedSongs: (fromIndex: number, toIndex: number) => ipcRenderer.invoke('liked-songs:reorder', fromIndex, toIndex),
+
+  // Playlists
+  getPlaylists: () => ipcRenderer.invoke('playlists:get'),
+  getPlaylistById: (id: string) => ipcRenderer.invoke('playlists:getById', id),
+  createPlaylist: (name: string, description?: string) => ipcRenderer.invoke('playlists:create', name, description),
+  renamePlaylist: (id: string, name: string) => ipcRenderer.invoke('playlists:rename', id, name),
+  deletePlaylist: (id: string) => ipcRenderer.invoke('playlists:delete', id),
+  addTrackToPlaylist: (playlistId: string, track: any) => ipcRenderer.invoke('playlists:addTrack', playlistId, track),
+  addTracksToPlaylist: (playlistId: string, tracks: any[]) => ipcRenderer.invoke('playlists:addTracks', playlistId, tracks),
+  removeTrackFromPlaylist: (playlistId: string, videoId: string) => ipcRenderer.invoke('playlists:removeTrack', playlistId, videoId),
+  reorderPlaylist: (playlistId: string, fromIndex: number, toIndex: number) => ipcRenderer.invoke('playlists:reorder', playlistId, fromIndex, toIndex),
+  isTrackInPlaylist: (playlistId: string, videoId: string) => ipcRenderer.invoke('playlists:containsTrack', playlistId, videoId),
+  getPlaylistsContainingTrack: (videoId: string) => ipcRenderer.invoke('playlists:containingTrack', videoId),
 
   // Settings
   getSettings: () => ipcRenderer.invoke('settings:get'),

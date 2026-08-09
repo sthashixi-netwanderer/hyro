@@ -1,6 +1,6 @@
 {
   "name": "hyro",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "A music streaming app powered by YouTube Music",
   "main": "./out/main/index.js",
   "author": "Hyro Music",

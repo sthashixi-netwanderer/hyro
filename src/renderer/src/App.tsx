@@ -12,6 +12,9 @@ import Library from './components/Library/Library'
 import ContainerDetail from './components/Library/ContainerDetail'
 import History from './components/History/History'
 import Favorites from './components/Favorites/Favorites'
+import LikedSongs from './components/LikedSongs/LikedSongs'
+import Playlists from './components/Playlists/Playlists'
+import UserPlaylistDetail from './components/Playlists/UserPlaylistDetail'
 import Settings from './components/Settings/Settings'
 import Downloads from './components/Downloads/Downloads'
 import Player from './components/Player/Player'
@@ -98,6 +101,16 @@ export default function App() {
         return <History />
       case 'favorites':
         return <Favorites />
+      case 'likedSongs':
+        return <LikedSongs />
+      case 'playlists':
+        return <Playlists onNavigate={navigateTo} />
+      case 'userPlaylist':
+        return viewData ? (
+          <UserPlaylistDetail playlistId={viewData} onBack={navigateBack} />
+        ) : (
+          <Playlists onNavigate={navigateTo} />
+        )
       case 'settings':
         return <Settings />
       case 'downloads':

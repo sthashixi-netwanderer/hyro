@@ -58,11 +58,33 @@ interface ElectronAPI {
   removeHistory: (videoIds: string[]) => Promise<any[]>
   clearHistory: () => Promise<{ success: boolean }>
 
-  // Favorites
+  // Favorites (legacy)
   getFavorites: () => Promise<any[]>
   addFavorite: (item: { id: string; type: string; data: any }) => Promise<any[]>
   removeFavorite: (id: string, type: string) => Promise<any[]>
   isFavorited: (id: string, type: string) => Promise<boolean>
+
+  // Liked Songs
+  getLikedSongs: () => Promise<any[]>
+  toggleLikedSong: (track: any) => Promise<{ tracks: any[]; added: boolean }>
+  isLikedSong: (videoId: string) => Promise<boolean>
+  addLikedSongs: (tracks: any[]) => Promise<any[]>
+  removeLikedSong: (videoId: string) => Promise<any[]>
+  removeLikedSongs: (videoIds: string[]) => Promise<any[]>
+  reorderLikedSongs: (fromIndex: number, toIndex: number) => Promise<any[]>
+
+  // Playlists
+  getPlaylists: () => Promise<any[]>
+  getPlaylistById: (id: string) => Promise<any>
+  createPlaylist: (name: string, description?: string) => Promise<any>
+  renamePlaylist: (id: string, name: string) => Promise<any>
+  deletePlaylist: (id: string) => Promise<boolean>
+  addTrackToPlaylist: (playlistId: string, track: any) => Promise<{ playlist: any; added: boolean }>
+  addTracksToPlaylist: (playlistId: string, tracks: any[]) => Promise<{ playlist: any; addedCount: number }>
+  removeTrackFromPlaylist: (playlistId: string, videoId: string) => Promise<any>
+  reorderPlaylist: (playlistId: string, fromIndex: number, toIndex: number) => Promise<any>
+  isTrackInPlaylist: (playlistId: string, videoId: string) => Promise<boolean>
+  getPlaylistsContainingTrack: (videoId: string) => Promise<string[]>
 
   // Settings
   getSettings: () => Promise<{ groqApiKey: string; cookieBrowser: string; volume?: number; theme?: 'dark' | 'light' | 'system'; minimizeToTray?: boolean; maxConcurrentDownloads?: number }>

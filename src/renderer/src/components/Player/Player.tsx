@@ -7,7 +7,7 @@ import { getTrackThumbnailUrl } from '../../../../shared/utils'
 import { ASCII_LOGO } from '../../../../shared/asciiLogo'
 import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
-import FavoriteButton from '@/components/ui/FavoriteButton'
+import AddToPlaylistDropdown from '@/components/ui/AddToPlaylistDropdown'
 import CachedImage from '@/components/ui/CachedImage'
 import { Shuffle, SkipBack, Play, Pause, SkipForward, Square, Volume2, VolumeX, Music, Download, Check, Disc3, Mic2, Maximize2, Minimize2, Repeat, Repeat1, Headphones, Bluetooth, ChevronDown, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -463,11 +463,10 @@ export default function Player() {
                     </Button>
                   )}
 
-                  {/* Favorite button */}
-                  <FavoriteButton
+                  {/* Liked songs button */}
+                  <AddToPlaylistDropdown
                     id={currentTrack.videoId}
-                    type="track"
-                    data={currentTrack}
+                    track={currentTrack}
                     className="text-muted-foreground hover:text-primary"
                   />
                 </div>
@@ -764,10 +763,9 @@ export default function Player() {
                 {/* Quick Actions in Fullscreen */}
                 {currentTrack && (
                   <div className="flex items-center gap-2 shrink-0">
-                    <FavoriteButton
+                    <AddToPlaylistDropdown
                       id={currentTrack.videoId}
-                      type="track"
-                      data={currentTrack}
+                      track={currentTrack}
                       className="text-white/40 hover:text-primary scale-110"
                     />
                     {downloading ? (

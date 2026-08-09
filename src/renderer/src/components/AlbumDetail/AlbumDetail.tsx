@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import FavoriteButton from '@/components/ui/FavoriteButton'
+import AlbumFavoriteButton from '@/components/ui/AlbumFavoriteButton'
 import CachedImage from '@/components/ui/CachedImage'
 import { ArrowLeft, Play, Download, Check, Disc3, Search, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -151,10 +151,8 @@ export default function AlbumDetail({ albumId, onBack }: AlbumDetailProps) {
             <Badge variant="secondary" className="mb-2">Album</Badge>
             <div className="flex items-center gap-3 mb-1">
               <h1 className="text-2xl font-bold truncate">{album.name}</h1>
-              <FavoriteButton
-                id={album.albumId}
-                type="album"
-                data={album}
+              <AlbumFavoriteButton
+                album={album}
                 size="md"
                 className="shrink-0"
               />

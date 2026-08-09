@@ -9,7 +9,10 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-import FavoriteButton from '@/components/ui/FavoriteButton'
+import AddToPlaylistDropdown from '@/components/ui/AddToPlaylistDropdown'
+import AlbumFavoriteButton from '@/components/ui/AlbumFavoriteButton'
+import PlaylistFavoriteButton from '@/components/ui/PlaylistFavoriteButton'
+import ArtistFavoriteButton from '@/components/ui/ArtistFavoriteButton'
 import CachedImage from '@/components/ui/CachedImage'
 import {
   Search as SearchIcon,
@@ -21,7 +24,6 @@ import {
   Clock,
   Play,
   ListPlus,
-  Heart,
   Download,
   Plus,
   Check,
@@ -419,10 +421,9 @@ export default function Search({ initialQuery = '', onNavigate }: SearchProps) {
                     <span className="text-xs text-muted-foreground tabular-nums shrink-0">
                       {track.duration ? formatDuration(track.duration) : ''}
                     </span>
-                    <FavoriteButton
+                    <AddToPlaylistDropdown
                       id={track.videoId}
-                      type="track"
-                      data={track}
+                      track={track}
                       className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
                     />
                   </div>
@@ -453,10 +454,9 @@ export default function Search({ initialQuery = '', onNavigate }: SearchProps) {
                       <p className="text-sm font-medium truncate">{artist.name}</p>
                       <p className="text-xs text-muted-foreground">Artist</p>
                     </div>
-                    <FavoriteButton
+                    <ArtistFavoriteButton
                       id={artist.artistId}
-                      type="artist"
-                      data={artist}
+                      artist={artist}
                       className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
                     />
                   </div>
@@ -592,7 +592,7 @@ export default function Search({ initialQuery = '', onNavigate }: SearchProps) {
                                   )}
                                 </div>
                                 <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                  <FavoriteButton id={item.videoId} type="track" data={item} size="md" className="bg-black/40 rounded-full p-1.5 backdrop-blur-sm" />
+                                  <AddToPlaylistDropdown id={item.videoId} track={item} size="md" className="bg-black/40 rounded-full p-1.5 backdrop-blur-sm" />
                                 </div>
                                 <div className="px-3 py-3">
                                   <p className="text-sm font-medium truncate">{item.name}</p>
@@ -633,7 +633,7 @@ export default function Search({ initialQuery = '', onNavigate }: SearchProps) {
                                   )}
                                 </div>
                                 <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                  <FavoriteButton id={item.albumId} type="album" data={item} size="md" className="bg-black/40 rounded-full p-1.5 backdrop-blur-sm" />
+                                  <AlbumFavoriteButton album={item} size="md" className="bg-black/40 rounded-full p-1.5 backdrop-blur-sm" />
                                 </div>
                                 <div className="px-3 py-3">
                                   <p className="text-sm font-medium truncate">{item.name}</p>
@@ -674,7 +674,7 @@ export default function Search({ initialQuery = '', onNavigate }: SearchProps) {
                                   )}
                                 </div>
                                 <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                  <FavoriteButton id={item.playlistId} type="playlist" data={item} size="md" className="bg-black/40 rounded-full p-1.5 backdrop-blur-sm" />
+                                  <PlaylistFavoriteButton playlist={item} size="md" className="bg-black/40 rounded-full p-1.5 backdrop-blur-sm" />
                                 </div>
                                 <div className="px-3 py-3">
                                   <p className="text-sm font-medium truncate">{item.name}</p>
@@ -696,7 +696,7 @@ export default function Search({ initialQuery = '', onNavigate }: SearchProps) {
           ) : (
             <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
               <SearchIcon className="size-12 mb-4" />
-              <p>Search for your favorite music</p>
+              <p>Search for your liked songs</p>
             </div>
           )}
         </div>
@@ -772,8 +772,8 @@ export default function Search({ initialQuery = '', onNavigate }: SearchProps) {
                     setContextMenu(null)
                   }}
                 >
-                  <Heart className={cn('size-3.5', fav ? 'text-primary fill-primary' : 'text-muted-foreground')} />
-                  {fav ? 'Remove Favorite' : 'Save to Favorites'}
+                  {fav ? <Check className="size-3.5 text-primary" /> : <Plus className="size-3.5 text-muted-foreground" />}
+                  {fav ? 'Remove from Liked Songs' : 'Save to Liked Songs'}
                 </button>
                 <button
                   className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg hover:bg-accent text-left transition-colors text-xs font-medium"
@@ -825,8 +825,8 @@ export default function Search({ initialQuery = '', onNavigate }: SearchProps) {
                     setContextMenu(null)
                   }}
                 >
-                  <Heart className={cn('size-3.5', fav ? 'text-primary fill-primary' : 'text-muted-foreground')} />
-                  {fav ? 'Remove Favorite' : 'Save to Favorites'}
+                  {fav ? <Check className="size-3.5 text-primary" /> : <Plus className="size-3.5 text-muted-foreground" />}
+                  {fav ? 'Remove from Liked Songs' : 'Save to Liked Songs'}
                 </button>
                 <button
                   className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg hover:bg-accent text-left transition-colors text-xs font-medium"
@@ -878,8 +878,8 @@ export default function Search({ initialQuery = '', onNavigate }: SearchProps) {
                     setContextMenu(null)
                   }}
                 >
-                  <Heart className={cn('size-3.5', fav ? 'text-primary fill-primary' : 'text-muted-foreground')} />
-                  {fav ? 'Remove Favorite' : 'Save to Favorites'}
+                  {fav ? <Check className="size-3.5 text-primary" /> : <Plus className="size-3.5 text-muted-foreground" />}
+                  {fav ? 'Remove from Liked Songs' : 'Save to Liked Songs'}
                 </button>
                 <button
                   className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg hover:bg-accent text-left transition-colors text-xs font-medium"

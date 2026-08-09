@@ -32,7 +32,7 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
       const items = await window.api.getFavorites()
       setFavorites(items)
     } catch (err) {
-      logger.error('Failed to load favorites:', err)
+      logger.error('Failed to load liked songs:', err)
     } finally {
       setLoading(false)
     }
@@ -53,7 +53,7 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
         setFavorites(items)
       }
     } catch (err) {
-      logger.error('Failed to toggle favorite:', err)
+      logger.error('Failed to toggle liked song:', err)
     }
   }, [favorites])
 
@@ -65,7 +65,7 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
         setFavorites(items)
       }
     } catch (err) {
-      logger.error('Failed to update favorite data:', err)
+      logger.error('Failed to update liked song data:', err)
     }
   }, [favorites])
 

@@ -6,6 +6,8 @@ import { PlayerProvider } from './context/PlayerContext'
 import { DownloadProvider } from './context/DownloadContext'
 import { HistoryProvider } from './context/HistoryContext'
 import { FavoritesProvider } from './context/FavoritesContext'
+import { LikedSongsProvider } from './context/LikedSongsContext'
+import { PlaylistsProvider } from './context/PlaylistsContext'
 import './styles/globals.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
@@ -15,7 +17,11 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <DownloadProvider>
           <HistoryProvider>
             <FavoritesProvider>
-              <App />
+              <LikedSongsProvider>
+                <PlaylistsProvider>
+                  <App />
+                </PlaylistsProvider>
+              </LikedSongsProvider>
             </FavoritesProvider>
           </HistoryProvider>
         </DownloadProvider>

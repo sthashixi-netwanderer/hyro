@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import FavoriteButton from '@/components/ui/FavoriteButton'
+import PlaylistFavoriteButton from '@/components/ui/PlaylistFavoriteButton'
 import CachedImage from '@/components/ui/CachedImage'
 import { ArrowLeft, Play, Download, Check, ListMusic, Search, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -151,10 +151,8 @@ export default function PlaylistDetail({ playlistId, onBack }: PlaylistDetailPro
             <Badge variant="secondary" className="mb-2">Playlist</Badge>
             <div className="flex items-center gap-3 mb-1">
               <h1 className="text-2xl font-bold truncate">{playlist.name}</h1>
-              <FavoriteButton
-                id={playlist.playlistId}
-                type="playlist"
-                data={playlist}
+              <PlaylistFavoriteButton
+                playlist={playlist}
                 size="md"
                 className="shrink-0"
               />

@@ -5,7 +5,7 @@ import { usePlayer } from '../../context/PlayerContext'
 import { useDownload } from '../../context/DownloadContext'
 import { useNavigation } from '../../context/NavigationContext'
 import { Button } from '@/components/ui/button'
-import FavoriteButton from '@/components/ui/FavoriteButton'
+import AddToPlaylistDropdown from '@/components/ui/AddToPlaylistDropdown'
 import CachedImage from '@/components/ui/CachedImage'
 import { Music, Download, Check, ListPlus } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -140,10 +140,9 @@ export default function TrackList({ tracks, showIndex = true, showDownload = tru
             >
               <ListPlus className="size-3.5" />
             </Button>
-            <FavoriteButton
+            <AddToPlaylistDropdown
               id={track.videoId}
-              type="track"
-              data={track}
+              track={track}
               className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
             />
             {showDownload && (

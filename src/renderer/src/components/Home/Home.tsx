@@ -7,7 +7,10 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
-import FavoriteButton from '@/components/ui/FavoriteButton'
+import AddToPlaylistDropdown from '@/components/ui/AddToPlaylistDropdown'
+import AlbumFavoriteButton from '@/components/ui/AlbumFavoriteButton'
+import PlaylistFavoriteButton from '@/components/ui/PlaylistFavoriteButton'
+import ArtistFavoriteButton from '@/components/ui/ArtistFavoriteButton'
 import CachedImage from '@/components/ui/CachedImage'
 import { Music, Disc3, ListMusic, RefreshCw, User, Clock } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -122,10 +125,9 @@ export default function Home({ onNavigate }: HomeProps) {
               )}
             </div>
             <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-              <FavoriteButton
+              <AddToPlaylistDropdown
                 id={item.videoId}
-                type="track"
-                data={item}
+                track={item}
                 size="md"
                 className="bg-black/40 rounded-full p-1.5 backdrop-blur-sm"
               />
@@ -181,10 +183,8 @@ export default function Home({ onNavigate }: HomeProps) {
               ) : null}
             </div>
             <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-              <FavoriteButton
-                id={item.albumId}
-                type="album"
-                data={item}
+              <AlbumFavoriteButton
+                album={item}
                 size="md"
                 className="bg-black/40 rounded-full p-1.5 backdrop-blur-sm"
               />
@@ -223,10 +223,8 @@ export default function Home({ onNavigate }: HomeProps) {
               />
             </div>
             <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-              <FavoriteButton
-                id={item.playlistId}
-                type="playlist"
-                data={item}
+              <PlaylistFavoriteButton
+                playlist={item}
                 size="md"
                 className="bg-black/40 rounded-full p-1.5 backdrop-blur-sm"
               />
@@ -273,10 +271,9 @@ export default function Home({ onNavigate }: HomeProps) {
               />
             </div>
             <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-              <FavoriteButton
+              <ArtistFavoriteButton
                 id={artistItem.artistId}
-                type="artist"
-                data={artistItem}
+                artist={artistItem}
                 size="md"
                 className="bg-black/40 rounded-full p-1.5 backdrop-blur-sm"
               />

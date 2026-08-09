@@ -5,7 +5,7 @@ import { getTrackThumbnailUrl, bestThumbnailUrl } from '../../../../shared/utils
 import type { FavoriteItem, Track } from '../../../../shared/types'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import { Heart, Music, Disc3, ListMusic, User, Play } from 'lucide-react'
+import { Plus, Music, Disc3, ListMusic, User, Play } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export default function Favorites() {
@@ -41,7 +41,7 @@ export default function Favorites() {
   if (loading) {
     return (
       <div className="p-8">
-        <h1 className="text-2xl font-bold mb-6">Favorites</h1>
+        <h1 className="text-2xl font-bold mb-6">Liked Songs</h1>
         <div className="space-y-1">
           {[1, 2, 3, 4, 5].map((i) => (
             <div key={i} className="h-14 bg-muted rounded animate-pulse" />
@@ -54,11 +54,11 @@ export default function Favorites() {
   if (favorites.length === 0) {
     return (
       <div className="p-8">
-        <h1 className="text-2xl font-bold mb-6">Favorites</h1>
+        <h1 className="text-2xl font-bold mb-6">Liked Songs</h1>
         <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
-          <Heart className="size-12 mb-4" />
-          <p className="text-lg">No favorites yet</p>
-          <p className="text-sm">Tap the heart icon on tracks, albums, or playlists to add them here</p>
+          <Plus className="size-12 mb-4" />
+          <p className="text-lg">No liked songs yet</p>
+          <p className="text-sm">Tap the + button on tracks, albums, or playlists to add them here</p>
         </div>
       </div>
     )
@@ -69,7 +69,7 @@ export default function Favorites() {
       {/* Fixed Header */}
       <div className="shrink-0 px-8 pt-8 pb-4 bg-background/95 backdrop-blur-md z-20 border-b border-border/10">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold">Favorites</h1>
+          <h1 className="text-2xl font-bold">Liked Songs</h1>
           {tracks.length > 0 && (
             <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={handlePlayAllTracks}>
               <Play className="size-4 fill-current" />
