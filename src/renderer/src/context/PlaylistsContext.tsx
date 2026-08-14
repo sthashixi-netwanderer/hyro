@@ -1,16 +1,18 @@
 import { logger } from '../utils/logger'
-import React, { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react'
+import React, { createContext, useContext, useState, useCallback, useEffect, useMemo, type ReactNode } from 'react'
 import type { UserPlaylist, Track } from '../../../shared/types'
 
 interface PlaylistsContextType {
   playlists: UserPlaylist[]
   loading: boolean
+  videoIdsInPlaylists: Set<string>
   createPlaylist: (name: string, description?: string) => Promise<UserPlaylist | null>
   renamePlaylist: (id: string, name: string) => Promise<void>
   deletePlaylist: (id: string) => Promise<void>
   addTrackToPlaylist: (playlistId: string, track: Track) => Promise<boolean>
   addTracksToPlaylist: (playlistId: string, tracks: Track[]) => Promise<number>
   removeTrackFromPlaylist: (playlistId: string, videoId: string) => Promise<void>
+  moveTrackToPlaylist: (track: Track, fromPlaylistIds: string[], toPlaylistId: string) => Promise<void>
   refresh: () => Promise<void>
 }
 
@@ -113,10 +115,46 @@ export function PlaylistsProvider({ children }: { children: ReactNode }) {
     await loadPlaylists()
   }, [])
 
+  const videoIdsInPlaylists = useMemo(() => {
+    const ids = new Set<string>()
+    for (const playlist of playlists) {
+      for (const track of playlist.tracks) {
+        ids.add(track.videoId)
+      }
+    }
+    return ids
+  }, [playlists])
+
+  const moveTrackToPlaylist = useCallback(async (track: Track, fromPlaylistIds: string[], toPlaylistId: string) => {
+    try {
+      // Remove from all current playlists
+      for (const fromId of fromPlaylistIds) {
+        await window.api.removeTrackFromPlaylist(fromId, track.videoId)
+      }
+      // Add to target playlist
+      const result = await window.api.addTrackToPlaylist(toPlaylistId, track)
+      // Update local state: rebuild affected playlists from IPC results
+      setPlaylists(prev => {
+        const next = prev.map(p => {
+          if (fromPlaylistIds.includes(p.id)) {
+            return { ...p, tracks: p.tracks.filter(t => t.videoId !== track.videoId) }
+          }
+          if (p.id === toPlaylistId && result.playlist) {
+            return result.playlist
+          }
+          return p
+        })
+        return next
+      })
+    } catch (err) {
+      logger.error('Failed to move track between playlists:', err)
+    }
+  }, [])
+
   return (
     <PlaylistsContext.Provider value={{
-      playlists, loading, createPlaylist, renamePlaylist, deletePlaylist,
-      addTrackToPlaylist, addTracksToPlaylist, removeTrackFromPlaylist, refresh
+      playlists, loading, videoIdsInPlaylists, createPlaylist, renamePlaylist, deletePlaylist,
+      addTrackToPlaylist, addTracksToPlaylist, removeTrackFromPlaylist, moveTrackToPlaylist, refresh
     }}>
       {children}
     </PlaylistsContext.Provider>

@@ -1,6 +1,7 @@
 {
   "name": "hyro",
-  "version": "1.5.0",
+  "desktopName": "hyro.desktop",
+  "version": "1.5.1",
   "description": "A music streaming app powered by YouTube Music",
   "main": "./out/main/index.js",
   "author": "Hyro Music",
@@ -49,6 +50,7 @@
   "build": {
     "appId": "com.hyro.music",
     "productName": "Hyro Music",
+    "executableName": "hyro",
     "directories": {
       "output": "release"
     },
@@ -72,6 +74,10 @@
       {
         "from": "resources/icon.icns",
         "to": "icon.icns"
+      },
+      {
+        "from": "resources/icons",
+        "to": "icons"
       }
     ],
     "linux": {
@@ -80,9 +86,23 @@
         "rpm",
         "AppImage"
       ],
-      "icon": "resources/icon.png",
+      "icon": "build/icons",
+      "syncDesktopName": true,
+      "desktop": {
+        "entry": {
+          "StartupWMClass": "hyro"
+        }
+      },
       "category": "Audio",
       "maintainer": "Hyro Music"
+    },
+    "deb": {
+      "afterInstall": "scripts/after-install.sh",
+      "afterRemove": "scripts/after-remove.sh"
+    },
+    "rpm": {
+      "afterInstall": "scripts/after-install.sh",
+      "afterRemove": "scripts/after-remove.sh"
     },
     "win": {
       "target": [

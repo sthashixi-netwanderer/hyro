@@ -7,6 +7,12 @@ import { getTrackThumbnailUrl } from '../../../../shared/utils'
 import { ASCII_LOGO } from '../../../../shared/asciiLogo'
 import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
 import AddToPlaylistDropdown from '@/components/ui/AddToPlaylistDropdown'
 import CachedImage from '@/components/ui/CachedImage'
 import { Shuffle, SkipBack, Play, Pause, SkipForward, Square, Volume2, VolumeX, Music, Download, Check, Disc3, Mic2, Maximize2, Minimize2, Repeat, Repeat1, Headphones, Bluetooth, ChevronDown, X } from 'lucide-react'
@@ -50,45 +56,6 @@ export default function Player() {
   const { navigateTo } = useNavigation()
   const { isDownloaded, isDownloading, getProgress, downloadTrack } = useDownload()
   const { isFavorited } = useFavorites()
-
-  // Audio output device selector state
-  const [showDeviceMenu, setShowDeviceMenu] = useState(false)
-  const [deviceMenuPos, setDeviceMenuPos] = useState({ top: 0, left: 0 })
-  const deviceTriggerRef = useRef<HTMLDivElement>(null)
-
-  // Close device menu on outside click or Escape
-  useEffect(() => {
-    if (!showDeviceMenu) return
-    function handleClick(e: MouseEvent) {
-      const target = e.target as Node
-      if (deviceTriggerRef.current && !deviceTriggerRef.current.contains(target)) {
-        setShowDeviceMenu(false)
-      }
-    }
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') setShowDeviceMenu(false)
-    }
-    document.addEventListener('mousedown', handleClick)
-    document.addEventListener('keydown', handleKey)
-    return () => {
-      document.removeEventListener('mousedown', handleClick)
-      document.removeEventListener('keydown', handleKey)
-    }
-  }, [showDeviceMenu])
-
-  const openDeviceMenu = useCallback(() => {
-    setShowDeviceMenu((prev) => {
-      if (prev) return false // toggle off
-      if (deviceTriggerRef.current) {
-        const rect = deviceTriggerRef.current.getBoundingClientRect()
-        setDeviceMenuPos({
-          top: rect.top - 8,
-          left: rect.right
-        })
-      }
-      return true
-    })
-  }, [])
 
   // Lyrics state
   const [lyricsData, setLyricsData] = useState<LyricsData | null>(null)
@@ -588,64 +555,49 @@ export default function Player() {
                 {Math.round((isMuted ? 0 : volume) * 100)}%
               </span>
               {/* Audio Output Device Selector */}
-              <div ref={deviceTriggerRef} className="relative">
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="text-muted-foreground hover:text-foreground transition-colors"
-                  onClick={openDeviceMenu}
-                  title="Audio Output"
-                >
-                  {(() => {
-                    const selDevice = audioOutputDevices.find(d => d.deviceId === selectedDeviceId)
-                    const label = selDevice?.label?.toLowerCase() || ''
-                    if (label.includes('headphone') || label.includes('headset')) {
-                      return <Headphones className="size-4" />
-                    }
-                    if (label.includes('bluetooth')) {
-                      return <Bluetooth className="size-4" />
-                    }
-                    return <Volume2 className="size-4" />
-                  })()}
-                  <ChevronDown className="size-3 ml-0.5" />
-                </Button>
-                {showDeviceMenu && audioOutputDevices.length > 0 && (
-                  <div
-                    className="fixed w-56 rounded-xl overflow-hidden bg-popover text-popover-foreground border border-border shadow-2xl z-[200]"
-                    style={{
-                      top: `${deviceMenuPos.top}px`,
-                      right: `${window.innerWidth - deviceMenuPos.left}px`
-                    }}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="text-muted-foreground hover:text-foreground transition-colors"
+                    title="Audio Output"
                   >
-                    {audioOutputDevices.map((device) => {
-                      const isActive = device.deviceId === selectedDeviceId
-                      const label = device.label.toLowerCase()
-                      let icon = <Volume2 className="size-4 shrink-0" />
-                      if (label.includes('headphone') || label.includes('headset')) icon = <Headphones className="size-4 shrink-0" />
-                      else if (label.includes('bluetooth')) icon = <Bluetooth className="size-4 shrink-0" />
-                      return (
-                        <button
-                          key={device.deviceId}
-                          onClick={() => {
-                            switchAudioOutput(device.deviceId)
-                            setShowDeviceMenu(false)
-                          }}
-                          className={cn(
-                            'w-full flex items-center gap-3 px-3 py-2 text-sm transition-colors text-left',
-                            isActive
-                              ? 'text-foreground font-semibold bg-accent'
-                              : 'text-muted-foreground hover:text-foreground hover:bg-accent/60'
-                          )}
-                        >
-                          {icon}
-                          <span className="truncate flex-1">{device.label}</span>
-                          {isActive && <Check className="size-3.5 text-primary shrink-0" />}
-                        </button>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
+                    {(() => {
+                      const selDevice = audioOutputDevices.find(d => d.deviceId === selectedDeviceId)
+                      const label = selDevice?.label?.toLowerCase() || ''
+                      if (label.includes('headphone') || label.includes('headset')) {
+                        return <Headphones className="size-4" />
+                      }
+                      if (label.includes('bluetooth')) {
+                        return <Bluetooth className="size-4" />
+                      }
+                      return <Volume2 className="size-4" />
+                    })()}
+                    <ChevronDown className="size-3 ml-0.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent side="top" align="end" sideOffset={8} className="w-56">
+                  {audioOutputDevices.map((device) => {
+                    const isActive = device.deviceId === selectedDeviceId
+                    const label = device.label.toLowerCase()
+                    let icon = <Volume2 className="size-4 shrink-0" />
+                    if (label.includes('headphone') || label.includes('headset')) icon = <Headphones className="size-4 shrink-0" />
+                    else if (label.includes('bluetooth')) icon = <Bluetooth className="size-4 shrink-0" />
+                    return (
+                      <DropdownMenuItem
+                        key={device.deviceId}
+                        onClick={() => switchAudioOutput(device.deviceId)}
+                        className={cn(isActive && 'font-semibold')}
+                      >
+                        {icon}
+                        <span className="flex-1 truncate">{device.label}</span>
+                        {isActive && <Check className="size-3.5 text-primary shrink-0" />}
+                      </DropdownMenuItem>
+                    )
+                  })}
+                </DropdownMenuContent>
+              </DropdownMenu>
 
               <Button
                 variant="ghost"
@@ -999,64 +951,53 @@ export default function Player() {
                     {Math.round((isMuted ? 0 : volume) * 100)}%
                   </span>
                   {/* Audio Output Device Selector */}
-                  <div ref={deviceTriggerRef} className="relative">
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      className="text-white/40 hover:text-white transition-colors"
-                      onClick={openDeviceMenu}
-                      title="Audio Output"
-                    >
-                      {(() => {
-                        const selDevice = audioOutputDevices.find(d => d.deviceId === selectedDeviceId)
-                        const label = selDevice?.label?.toLowerCase() || ''
-                        if (label.includes('headphone') || label.includes('headset')) {
-                          return <Headphones className="size-5" />
-                        }
-                        if (label.includes('bluetooth')) {
-                          return <Bluetooth className="size-5" />
-                        }
-                        return <Volume2 className="size-5" />
-                      })()}
-                      <ChevronDown className="size-3.5 ml-0.5" />
-                    </Button>
-                    {showDeviceMenu && audioOutputDevices.length > 0 && (
-                      <div
-                        className="fixed w-56 rounded-xl overflow-hidden bg-white/[0.08] backdrop-blur-2xl border border-white/[0.08] shadow-2xl z-[200]"
-                        style={{
-                          top: `${deviceMenuPos.top}px`,
-                          right: `${window.innerWidth - deviceMenuPos.left}px`
-                        }}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="text-white/40 hover:text-white transition-colors"
+                        title="Audio Output"
                       >
-                        {audioOutputDevices.map((device) => {
-                          const isActive = device.deviceId === selectedDeviceId
-                          const label = device.label.toLowerCase()
-                          let icon = <Volume2 className="size-4 shrink-0" />
-                          if (label.includes('headphone') || label.includes('headset')) icon = <Headphones className="size-4 shrink-0" />
-                          else if (label.includes('bluetooth')) icon = <Bluetooth className="size-4 shrink-0" />
-                          return (
-                            <button
-                              key={device.deviceId}
-                              onClick={() => {
-                                switchAudioOutput(device.deviceId)
-                                setShowDeviceMenu(false)
-                              }}
-                              className={cn(
-                                'w-full flex items-center gap-3 px-3 py-2 text-sm transition-colors',
-                                isActive
-                                  ? 'text-white bg-white/[0.08]'
-                                  : 'text-white/60 hover:text-white hover:bg-white/[0.04]'
-                              )}
-                            >
-                              {icon}
-                              <span className="truncate flex-1 text-left">{device.label}</span>
-                              {isActive && <Check className="size-3.5 text-primary shrink-0" />}
-                            </button>
-                          )
-                        })}
-                      </div>
-                    )}
-                  </div>
+                        {(() => {
+                          const selDevice = audioOutputDevices.find(d => d.deviceId === selectedDeviceId)
+                          const label = selDevice?.label?.toLowerCase() || ''
+                          if (label.includes('headphone') || label.includes('headset')) {
+                            return <Headphones className="size-5" />
+                          }
+                          if (label.includes('bluetooth')) {
+                            return <Bluetooth className="size-5" />
+                          }
+                          return <Volume2 className="size-5" />
+                        })()}
+                        <ChevronDown className="size-3.5 ml-0.5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent side="top" align="end" sideOffset={8} className="w-56 bg-white/[0.08] backdrop-blur-2xl border border-white/[0.08] text-white">
+                      {audioOutputDevices.map((device) => {
+                        const isActive = device.deviceId === selectedDeviceId
+                        const label = device.label.toLowerCase()
+                        let icon = <Volume2 className="size-4 shrink-0" />
+                        if (label.includes('headphone') || label.includes('headset')) icon = <Headphones className="size-4 shrink-0" />
+                        else if (label.includes('bluetooth')) icon = <Bluetooth className="size-4 shrink-0" />
+                        return (
+                          <DropdownMenuItem
+                            key={device.deviceId}
+                            onClick={() => switchAudioOutput(device.deviceId)}
+                            className={cn(
+                              isActive
+                                ? 'text-white bg-white/[0.08] font-semibold'
+                                : 'text-white/60 hover:text-white hover:bg-white/[0.04]'
+                            )}
+                          >
+                            {icon}
+                            <span className="flex-1 truncate">{device.label}</span>
+                            {isActive && <Check className="size-3.5 text-primary shrink-0" />}
+                          </DropdownMenuItem>
+                        )
+                      })}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
               </div>
             </div>

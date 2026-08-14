@@ -4,6 +4,7 @@ import { useNavigation } from '../../context/NavigationContext'
 import { bestThumbnailUrl } from '../../../../shared/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import PlaylistMarker from '@/components/ui/PlaylistMarker'
 import { Music, Trash2, ChevronUp, ChevronDown, X, GripVertical, Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -125,6 +126,7 @@ export default function Queue() {
             <span className="text-xs text-muted-foreground tabular-nums shrink-0">
               {currentTrack.duration ? formatDuration(currentTrack.duration) : ''}
             </span>
+            <PlaylistMarker track={currentTrack} />
           </div>
         </div>
       )}
@@ -216,6 +218,7 @@ export default function Queue() {
                   {track.duration ? formatDuration(track.duration) : ''}
                 </span>
                 <div className="hidden group-hover:flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                  <PlaylistMarker track={track} />
                   <button
                     type="button"
                     disabled={actualIndex === queueIndex + 1}

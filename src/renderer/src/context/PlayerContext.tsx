@@ -958,19 +958,23 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     try {
       await audio.setSinkId(deviceId)
       setSelectedDeviceId(deviceId)
+      logger.info(`[player] Switched audio output to: ${deviceId}`)
     } catch (err) {
-      logger.warn('[player] setSinkId failed, requesting permission:', err)
-      // If permission was denied, trigger the OS permission dialog
+      logger.warn('[player] setSinkId failed, attempting permission flow:', err)
+      // Try requesting audio output permission via the browser API
       try {
-        await (navigator.mediaDevices as any).selectAudioOutput()
+        if (typeof (navigator.mediaDevices as any).selectAudioOutput === 'function') {
+          await (navigator.mediaDevices as any).selectAudioOutput()
+        }
         // Re-enumerate after permission grant
         const devices = await enumerateAudioDevices()
         setAudioOutputDevices(devices)
         // Retry the sink switch
         await audio.setSinkId(deviceId)
         setSelectedDeviceId(deviceId)
-      } catch {
-        logger.error('[player] Audio output device switch failed permanently')
+        logger.info(`[player] Switched audio output after permission grant: ${deviceId}`)
+      } catch (retryErr) {
+        logger.error('[player] Audio output device switch failed:', retryErr)
       }
     }
   }, [enumerateAudioDevices])

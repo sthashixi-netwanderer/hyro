@@ -7,6 +7,7 @@ suppressConsole()
 
 import { shell, BrowserWindow, protocol, net, ipcMain, Tray, Menu, nativeImage, powerSaveBlocker } from 'electron'
 import { join, normalize, resolve } from 'path'
+import { existsSync, mkdirSync, writeFileSync } from 'fs'
 import { pathToFileURL } from 'url'
 import { homedir } from 'os'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -29,6 +30,15 @@ import { registerPlaybackStateIPC } from './ipc/playback-state'
 import { registerImageCacheIPC, IMAGE_CACHE_DIR } from './ipc/image-cache'
 import { registerUpdateIPC, stopUpdateChecks } from './ipc/update'
 import dns from 'node:dns'
+
+// Set application identity for Linux window management and desktop integration.
+// Setting app.name and app.desktopName before ready ensures that X11 WM_CLASS and
+// Wayland app_id match the installed hyro.desktop file and StartupWMClass=hyro,
+// allowing GNOME/KDE/XFCE docks, taskbars, and app menus to display the app icon correctly.
+if (process.platform === 'linux') {
+  app.name = 'hyro'
+  ;(app as any).desktopName = 'hyro.desktop'
+}
 
 // Set DNS lookup order to prefer IPv4 over IPv6.
 try {
@@ -84,20 +94,104 @@ const STREAM_CACHE_DIR = join(app.getPath('userData'), 'stream-cache')
 
 /** Resolve the app icon path — extraResources in production, project root in dev. */
 function getIconPath(): string {
-  const iconFile = process.platform === 'win32' ? 'icon.ico' : process.platform === 'darwin' ? 'icon.icns' : 'icon.png'
+  const candidates: string[] = []
   if (app.isPackaged) {
-    const packaged = join(process.resourcesPath, iconFile)
-    // Fallback to png if platform-specific not found (dev parity)
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const fs = require('fs')
-      if (fs.existsSync(packaged)) return packaged
-    } catch {
-      // ignore
-    }
-    return join(process.resourcesPath, 'icon.png')
+    if (process.platform === 'win32') candidates.push(join(process.resourcesPath, 'icon.ico'))
+    else if (process.platform === 'darwin') candidates.push(join(process.resourcesPath, 'icon.icns'))
+    candidates.push(join(process.resourcesPath, 'icon.png'))
+    candidates.push(join(process.resourcesPath, 'icons', '512x512.png'))
+  } else {
+    const dev = join(__dirname, '../../resources')
+    if (process.platform === 'win32') candidates.push(join(dev, 'icon.ico'))
+    else if (process.platform === 'darwin') candidates.push(join(dev, 'icon.icns'))
+    candidates.push(join(dev, 'icon.png'))
+    candidates.push(join(dev, 'icons', '512x512.png'))
   }
-  return join(__dirname, '../../resources', iconFile)
+
+  // Return the first candidate that actually exists on disk so the window,
+  // tray, and dock never receive a broken/missing icon path.
+  for (const candidate of candidates) {
+    try {
+      if (existsSync(candidate)) return candidate
+    } catch {
+      // fall through to the next candidate
+    }
+  }
+
+  logger.warn(`App icon could not be found on disk; tried: ${candidates.join(', ')}`)
+  return candidates[candidates.length - 1]
+}
+
+/**
+ * Builds a NativeImage containing all available icon resolutions (16x16 up to 1024x1024)
+ * so that X11 window managers (_NET_WM_ICON), Wayland, system tray, and dock render
+ * sharp icons at every scale factor.
+ */
+function getAppIcon(): Electron.NativeImage {
+  const icon = nativeImage.createEmpty()
+  const sizes = [16, 32, 48, 64, 128, 256, 512, 1024]
+  let loaded = 0
+
+  const iconsDir = app.isPackaged
+    ? join(process.resourcesPath, 'icons')
+    : join(__dirname, '../../resources/icons')
+
+  for (const size of sizes) {
+    const iconFile = join(iconsDir, `${size}x${size}.png`)
+    try {
+      if (existsSync(iconFile)) {
+        const rep = nativeImage.createFromPath(iconFile)
+        if (!rep.isEmpty()) {
+          icon.addRepresentation({
+            width: size,
+            height: size,
+            scaleFactor: 1.0,
+            buffer: rep.toPNG()
+          })
+          loaded++
+        }
+      }
+    } catch {
+      // ignore individual size read error
+    }
+  }
+
+  if (loaded > 0) {
+    return icon
+  }
+
+  return nativeImage.createFromPath(getIconPath())
+}
+
+/** In development on Linux, ensure a user desktop file exists so Wayland/GNOME taskbars show the app icon. */
+function ensureDevDesktopFile(): void {
+  if (app.isPackaged || process.platform !== 'linux') return
+  try {
+    const appsDir = join(homedir(), '.local', 'share', 'applications')
+    if (!existsSync(appsDir)) {
+      mkdirSync(appsDir, { recursive: true })
+    }
+    const desktopFile = join(appsDir, 'hyro.desktop')
+    if (existsSync(desktopFile)) {
+      return
+    }
+    const iconPath = join(__dirname, '../../resources/icon.png')
+    const content = [
+      '[Desktop Entry]',
+      'Name=Hyro Music',
+      'Comment=A music streaming app powered by YouTube Music',
+      'Exec=hyro',
+      `Icon=${iconPath}`,
+      'Terminal=false',
+      'Type=Application',
+      'StartupWMClass=hyro',
+      'Categories=Audio;Music;'
+    ].join('\n') + '\n'
+
+    writeFileSync(desktopFile, content, 'utf-8')
+  } catch (err) {
+    logger.debug('Failed to ensure dev desktop file:', err)
+  }
 }
 
 /** Check that yt-dlp is installed and accessible on PATH. */
@@ -190,6 +284,8 @@ function createTray(): void {
 }
 
 function createWindow(): void {
+  const appIcon = getAppIcon()
+
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -200,7 +296,7 @@ function createWindow(): void {
     frame: false,
     transparent: true,
     backgroundColor: '#00000000',
-    icon: getIconPath(),
+    icon: appIcon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
@@ -208,6 +304,10 @@ function createWindow(): void {
       nodeIntegration: false
     }
   })
+
+  if (!appIcon.isEmpty()) {
+    mainWindow.setIcon(appIcon)
+  }
   
   // Apply rounded corners to the window by setting window background theme
   // The actual rounded corners are handled via CSS in index.html
@@ -248,6 +348,14 @@ function createWindow(): void {
     }
   })
 
+  // Grant media permission checks (needed for enumerateDevices to return device labels)
+  mainWindow.webContents.session.setPermissionCheckHandler((_webContents, permission, _requestingOrigin, _details) => {
+    if (permission === 'media') {
+      return true
+    }
+    return false
+  })
+
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
@@ -280,11 +388,14 @@ app.whenReady().then(async () => {
   logger.info('App ready', { version: app.getVersion(), platform: process.platform, arch: process.arch })
   electronApp.setAppUserModelId('com.hyro.music')
 
+  // Register dev desktop entry on Linux so dock/taskbar matches and shows the icon in development
+  ensureDevDesktopFile()
+
   // Ensure dock / app menu icon is set from the new brand icon (macOS & Linux)
   try {
-    const icon = nativeImage.createFromPath(getIconPath())
-    if (!icon.isEmpty() && process.platform === 'darwin' && app.dock) {
-      app.dock.setIcon(icon)
+    const appIcon = getAppIcon()
+    if (!appIcon.isEmpty() && process.platform === 'darwin' && app.dock) {
+      app.dock.setIcon(appIcon)
     }
   } catch {
     // ignore dock icon failure

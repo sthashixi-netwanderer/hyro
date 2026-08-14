@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import AddToPlaylistDropdown from '@/components/ui/AddToPlaylistDropdown'
+import PlaylistMarker from '@/components/ui/PlaylistMarker'
 import AlbumFavoriteButton from '@/components/ui/AlbumFavoriteButton'
 import PlaylistFavoriteButton from '@/components/ui/PlaylistFavoriteButton'
 import ArtistFavoriteButton from '@/components/ui/ArtistFavoriteButton'
@@ -421,6 +422,10 @@ export default function Search({ initialQuery = '', onNavigate }: SearchProps) {
                     <span className="text-xs text-muted-foreground tabular-nums shrink-0">
                       {track.duration ? formatDuration(track.duration) : ''}
                     </span>
+                    <PlaylistMarker
+                      track={track}
+                      className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                    />
                     <AddToPlaylistDropdown
                       id={track.videoId}
                       track={track}
@@ -591,7 +596,8 @@ export default function Search({ initialQuery = '', onNavigate }: SearchProps) {
                                     <Music className="size-8 text-muted-foreground" />
                                   )}
                                 </div>
-                                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                                  <PlaylistMarker track={item} className="bg-black/40 rounded-full p-1.5 backdrop-blur-sm" />
                                   <AddToPlaylistDropdown id={item.videoId} track={item} size="md" className="bg-black/40 rounded-full p-1.5 backdrop-blur-sm" />
                                 </div>
                                 <div className="px-3 py-3">
